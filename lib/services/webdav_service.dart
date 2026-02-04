@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:get_thumbnail_video/index.dart';
 import 'package:webdav_client/webdav_client.dart' as webdav;
 import 'package:image/image.dart' as img;
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:get_thumbnail_video/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/diary_entry.dart';
 import '../models/app_config.dart';
@@ -319,9 +320,9 @@ class WebDAVService implements CloudStorageService {
           timeMs: 1000, // 从第1秒开始获取缩略图
         );
         debugPrint(
-            'VideoThumbnail.thumbnailData result: ${thumbnail != null ? 'success (${thumbnail.length} bytes)' : 'null'}');
+            'getThumbnail result: ${thumbnail.isNotEmpty ? 'success (${thumbnail.length} bytes)' : 'null'}');
       } catch (e) {
-        debugPrint('VideoThumbnail.thumbnailData exception: $e');
+        debugPrint('getThumbnail exception: $e');
         thumbnail = null;
       }
 
@@ -338,7 +339,7 @@ class WebDAVService implements CloudStorageService {
             timeMs: 0, // 从开始位置
           );
           debugPrint(
-              'Alternative VideoThumbnail result: ${thumbnail != null ? 'success (${thumbnail.length} bytes)' : 'null'}');
+              'Alternative VideoThumbnail result: ${thumbnail.isNotEmpty ? 'success (${thumbnail.length} bytes)' : 'null'}');
         } catch (e) {
           debugPrint('Alternative VideoThumbnail exception: $e');
           thumbnail = null;

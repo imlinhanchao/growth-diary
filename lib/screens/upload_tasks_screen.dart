@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:get_thumbnail_video/index.dart';
 import 'dart:io';
 import 'package:path/path.dart';
 import 'package:intl/intl.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:get_thumbnail_video/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/background_upload_service.dart';
 
@@ -68,8 +69,8 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
           maxHeight: 100,
           quality: 75,
         );
-        if (thumbnailPath != null) {
-          thumbnail = File(thumbnailPath);
+        if (thumbnailPath.path.isNotEmpty) {
+          thumbnail = File(thumbnailPath.path);
         }
       }
 

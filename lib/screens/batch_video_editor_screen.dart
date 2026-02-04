@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:get_thumbnail_video/index.dart';
 import 'package:video_trimmer/video_trimmer.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:get_thumbnail_video/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
@@ -65,7 +66,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
 
         if (mounted) {
           setState(() {
-            _thumbnails[i] = thumbnailPath;
+            _thumbnails[i] = thumbnailPath.path;
           });
         }
       } catch (e) {

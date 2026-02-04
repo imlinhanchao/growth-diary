@@ -33,6 +33,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+.fvm
 
 # Symbolication related
 app.*.symbols
@@ -52,3 +53,6 @@ android/app/*.p12
 
 *.ipa
 site/ios/manifest.plist
+
+# FVM Version Cache
+.fvm/
