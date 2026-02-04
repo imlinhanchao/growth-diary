@@ -31,6 +31,7 @@ jobs:
 
     - name: Rename APK with version
       run: |
+        ls build/ios/ipa/
         mv build/ios/ipa/*.ipa "build/growth-diary-${{ github.event.inputs.version_name }}.ipa"
        
     - name: Create Release Draft
