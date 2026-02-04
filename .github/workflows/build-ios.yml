@@ -28,7 +28,11 @@ jobs:
         certificate-password: ${{ secrets.IOS_BUILD_CERTIFICATE_PASSWORD }}
         provisioning-profile-base64: ${{ secrets.IOS_MOBILE_PROVISIONING_PROFILE_BASE64 }}
         keychain-password: ${{ secrets.IOS_GITHUB_KEYCHAIN_PASSWORD }}
-        
+
+    - name: Rename APK with version
+      run: |
+        mv build/ios/ipa/*.ipa "build/growth-diary-${{ github.event.inputs.version_name }}.ipa"
+       
     - name: Create Release Draft
       id: create_release
       uses: actions/create-release@v1
@@ -46,6 +50,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./Runner.ipa
-        asset_name: Runner.ipa
+        asset_path: build/growth-diary-${{ github.event.inputs.version_name }}.ipa
+        asset_name: growth-diary-${{ github.event.inputs.version_name }}.ipa
         asset_content_type: application/octet-stream
