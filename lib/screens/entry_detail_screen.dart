@@ -226,32 +226,63 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
   }
 
   Future<void> _editDescription() async {
-    final TextEditingController controller =
+    final TextEditingController titleController =
+        TextEditingController(text: _currentEntry.title);
+    final TextEditingController descriptionController =
         TextEditingController(text: _currentEntry.description);
 
-    final String? newDescription = await showDialog<String>(
+    final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
-          '编辑描述',
+          '编辑内容',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        content: TextField(
-          controller: controller,
-          maxLines: 8,
-          minLines: 3,
-          style: const TextStyle(fontSize: 16, height: 1.5),
-          decoration: InputDecoration(
-            hintText: '记录下这一刻的想法...',
-            hintStyle: TextStyle(color: Colors.grey.shade400),
-            filled: true,
-            fillColor: Colors.grey.shade50,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            contentPadding: const EdgeInsets.all(16),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: InputDecoration(
+                  hintText: '标题（可选）',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.all(16),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: descriptionController,
+                maxLines: 8,
+                minLines: 3,
+                style: const TextStyle(fontSize: 16, height: 1.5),
+                decoration: InputDecoration(
+                  hintText: '记录下这一刻的想法...',
+                  hintStyle: TextStyle(color: Colors.grey.shade400),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.all(16),
+                ),
+              ),
+            ],
           ),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -264,7 +295,10 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
             child: const Text('取消'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
+            onPressed: () => Navigator.pop(context, {
+              'title': titleController.text,
+              'description': descriptionController.text,
+            }),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.pink,
               foregroundColor: Colors.white,
@@ -280,44 +314,50 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
       ),
     );
 
-    if (newDescription != null && newDescription != _currentEntry.description) {
-      try {
-        // 创建更新后的entry
-        final updatedEntry = DiaryEntry(
-          id: _currentEntry.id,
-          title: _currentEntry.title,
-          description: newDescription,
-          date: _currentEntry.date,
-          imagePaths: _currentEntry.imagePaths,
-          imageThumbnails: _currentEntry.imageThumbnails,
-          videoPaths: _currentEntry.videoPaths,
-          videoThumbnails: _currentEntry.videoThumbnails,
-          ageInMonths: _currentEntry.ageInMonths,
-        );
+    if (result != null) {
+      final newTitle = result['title'] ?? '';
+      final newDescription = result['description'] ?? '';
 
-        // 保存到WebDAV
-        await widget.cloudService.saveDiaryEntry(updatedEntry);
+      if (newTitle != _currentEntry.title ||
+          newDescription != _currentEntry.description) {
+        try {
+          // 创建更新后的entry
+          final updatedEntry = DiaryEntry(
+            id: _currentEntry.id,
+            title: newTitle,
+            description: newDescription,
+            date: _currentEntry.date,
+            imagePaths: _currentEntry.imagePaths,
+            imageThumbnails: _currentEntry.imageThumbnails,
+            videoPaths: _currentEntry.videoPaths,
+            videoThumbnails: _currentEntry.videoThumbnails,
+            ageInMonths: _currentEntry.ageInMonths,
+          );
 
-        if (!mounted) return;
+          // 保存到WebDAV
+          await widget.cloudService.saveDiaryEntry(updatedEntry);
 
-        // 更新当前状态
-        setState(() {
-          _currentEntry = updatedEntry;
-        });
+          if (!mounted) return;
 
-        // 通知首页有更新
-        widget.onEntryUpdated
-            ?.call(EntryDetailResult.updated(updatedEntry), widget.entry);
+          // 更新当前状态
+          setState(() {
+            _currentEntry = updatedEntry;
+          });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('描述修改成功')),
-        );
-      } catch (e) {
-        if (!mounted) return;
+          // 通知首页有更新
+          widget.onEntryUpdated
+              ?.call(EntryDetailResult.updated(updatedEntry), widget.entry);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('修改失败: $e')),
-        );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('内容修改成功')),
+          );
+        } catch (e) {
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('修改失败: $e')),
+          );
+        }
       }
     }
   }

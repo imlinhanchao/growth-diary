@@ -73,6 +73,20 @@ class _TimelineItemState extends State<TimelineItem> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Title
+                      if (widget.entry.title.isNotEmpty) ...[
+                        Text(
+                          widget.entry.title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
                       // Description
                       if (widget.entry.description.isNotEmpty) ...[
                         Text(

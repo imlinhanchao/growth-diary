@@ -137,14 +137,16 @@ class AgeCalculator {
     final months = age['months']!;
     final days = age['days']!;
 
+    final dayText = days > 0 ? (days > 10 ? '$days天' : '零$days天') : '';
+
     if (years == 0 && months == 0 && days == 0) {
       return '出生';
     } else if (years == 0 && months == 0) {
       return '$days天';
     } else if (years == 0) {
-      return '$months个月$days天';
+      return months > 0 ? '$months个月$dayText' : dayText;
     } else {
-      return '$years岁$months个月$days天';
+      return '$years岁${months > 0 ? '$months个月$dayText' : dayText}';
     }
   }
 
