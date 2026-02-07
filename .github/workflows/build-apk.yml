@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK APP
 
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
       env:
           ANDROID_RELEASE_KEY: ${{ secrets.ANDROID_RELEASE_KEY }}
       run: |
-        echo $ANDROID_RELEASE_KEY | base64 --decode > android/app/upload-keystore.p12
+        echo $ANDROID_RELEASE_KEY | base64 --decode > android/app/growth-keystore.p12
 
     - name: Build APK
       run: |
