@@ -204,6 +204,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _onRefresh() async {
+    // 先获取最新的配置
+    await _reloadLatestConfig();
+
+    // 重新加载条目
+    await _loadEntries();
+
+    // 强制重新加载封面图（忽略缓存）
+    await _loadCoverImage(forceRefresh: true);
+  }
+
   Future<void> _handleEntryUpdate(
       EntryDetailResult result, DiaryEntry originalEntry) async {
     if (result.isDeleted) {
@@ -875,7 +886,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: Stack(
         children: [
           RefreshIndicator(
-            onRefresh: _loadEntries,
+            onRefresh: _onRefresh,
             child: CustomScrollView(
               controller: _scrollController,
               physics: const AlwaysScrollableScrollPhysics(),
@@ -2032,7 +2043,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadCoverImage() async {
+  Future<void> _loadCoverImage({bool forceRefresh = false}) async {
     final coverImagePath = currentConfig.babyCoverImagePath;
     if (coverImagePath == null || coverImagePath.isEmpty) {
       setState(() {
@@ -2042,7 +2053,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (_coverImageData != null) return; // 已经加载过了
+    if (_coverImageData != null && !forceRefresh) return; // 已经加载过了，除非强制刷新
 
     setState(() {
       _isLoadingCoverImage = true;
