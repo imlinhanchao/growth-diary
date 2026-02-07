@@ -38,7 +38,7 @@ jobs:
     - name: Rename with version
       run: |
         ls build/ios/ipa/
-        mv build/ios/ipa/*.ipa "build/growth-diary-${{ github.event.inputs.version_name }}.ipa"
+        mv build/ios/ipa/*.ipa "build/growth-diary-${{ steps.version.outputs.version_name }}.ipa"
        
     - name: Create Release Draft
       id: create_release
