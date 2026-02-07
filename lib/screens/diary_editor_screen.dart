@@ -55,8 +55,10 @@ class _DiaryEditorScreenState extends State<DiaryEditorScreen> {
     }
 
     try {
-      await _entryService.createDiaryEntry(title, content, widget.config,
+      var entry = await _entryService.createDiaryEntry(
+          title, content, widget.config,
           customDate: _selectedDate);
+      await widget.webdavService.saveDiaryEntry(entry);
       if (!mounted) return;
       Navigator.of(context).pop(); // 返回上一页
     } catch (e) {

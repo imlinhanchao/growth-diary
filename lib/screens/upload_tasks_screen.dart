@@ -1,11 +1,10 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
-import 'package:get_thumbnail_video/index.dart';
 import 'dart:io';
-import 'package:path/path.dart';
-import 'package:intl/intl.dart';
-import 'package:get_thumbnail_video/video_thumbnail.dart';
-import 'package:path_provider/path_provider.dart';
-import '../services/background_upload_service.dart';
+import 'package:path/path.dart' as p;
+import '../services/media_upload_service.dart';
+import '../utils/file_utils.dart' as file_utils;
 
 class UploadTasksScreen extends StatefulWidget {
   const UploadTasksScreen({super.key});
@@ -15,18 +14,23 @@ class UploadTasksScreen extends StatefulWidget {
 }
 
 class _UploadTasksScreenState extends State<UploadTasksScreen> {
-  List<UploadTask> _tasks = [];
+  List<MediaTask> get _tasks => [
+        ...(_currentTask != null ? [_currentTask!] : []),
+        ..._uploadQueue
+      ];
+  Queue<MediaTask> _uploadQueue = Queue<MediaTask>();
+  MediaTask? _currentTask;
 
   @override
   void initState() {
     super.initState();
     _loadTasks();
     // 设置上传进度更新回调
-    BackgroundUploadService.setUploadProgressCallback(() {
+    MediaUploadService.setUploadProgressCallback(() {
       _loadTasks();
     });
     // 设置上传完成回调
-    BackgroundUploadService.setUploadCompletedCallback(() {
+    MediaUploadService.setUploadCompletedCallback(() {
       _loadTasks();
     });
   }
@@ -34,100 +38,84 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
   @override
   void dispose() {
     // 清理回调
-    BackgroundUploadService.removeUploadProgressCallback(_loadTasks);
-    BackgroundUploadService.removeUploadCompletedCallback(_loadTasks);
+    MediaUploadService.removeUploadProgressCallback();
+    MediaUploadService.removeUploadCompletedCallback();
     super.dispose();
   }
 
   void _loadTasks() {
     setState(() {
-      // 只显示未完成的任务
-      _tasks = BackgroundUploadService.getAllUploadTasks()
-          .where((task) => task.status != UploadStatus.completed)
-          .toList();
+      // 只显示未完成和暂停的任务
+      _uploadQueue = MediaUploadService.uploadQueue;
+      _currentTask = MediaUploadService.currentTask;
     });
   }
 
-  Future<Map<String, dynamic>> _getFileInfo(String path) async {
-    try {
-      final file = File(path);
-      final stat = await file.stat();
-      final sizeMB = (stat.size / (1024 * 1024)).toStringAsFixed(2);
-      final date = DateFormat('yyyy-MM-dd HH:mm').format(stat.modified);
-      final name = basename(path);
-      final isVideo = _isVideoFile(path);
-      File? thumbnail;
+  bool _hasActiveTasks() {
+    return _tasks.any((task) =>
+        task.uploadStatus == file_utils.UploadStatus.uploading ||
+        task.uploadStatus == file_utils.UploadStatus.compressing);
+  }
 
-      if (!isVideo) {
-        thumbnail = file;
-      } else {
-        final tempDir = await getTemporaryDirectory();
-        final thumbnailPath = await VideoThumbnail.thumbnailFile(
-          video: path,
-          thumbnailPath: tempDir.path,
-          imageFormat: ImageFormat.JPEG,
-          maxHeight: 100,
-          quality: 75,
-        );
-        if (thumbnailPath.path.isNotEmpty) {
-          thumbnail = File(thumbnailPath.path);
-        }
-      }
+  bool _hasPausedTasks() {
+    return _tasks
+        .any((task) => task.uploadStatus == file_utils.UploadStatus.paused);
+  }
 
-      return {
-        'name': name,
-        'size': sizeMB,
-        'date': date,
-        'isVideo': isVideo,
-        'thumbnail': thumbnail,
-      };
-    } catch (e) {
-      return {
-        'name': basename(path),
-        'size': '未知',
-        'date': '未知',
-        'isVideo': false,
-        'thumbnail': null,
-      };
+  void _clearAllTasks() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清空所有任务'),
+        content: const Text('确定要清空所有上传任务吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      MediaUploadService.clearAllTasks();
+      _loadTasks();
     }
   }
 
-  bool _isVideoFile(String path) {
-    final extension = path.split('.').last.toLowerCase();
-    return ['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'webm']
-        .contains(extension);
-  }
-
-  String _getStatusText(UploadStatus status) {
+  String _getStatusText(file_utils.UploadStatus status) {
     switch (status) {
-      case UploadStatus.pending:
+      case file_utils.UploadStatus.pending:
         return '等待中';
-      case UploadStatus.compressing:
+      case file_utils.UploadStatus.compressing:
         return '压缩中';
-      case UploadStatus.uploading:
+      case file_utils.UploadStatus.uploading:
         return '上传中';
-      case UploadStatus.paused:
+      case file_utils.UploadStatus.paused:
         return '已暂停';
-      case UploadStatus.completed:
+      case file_utils.UploadStatus.completed:
         return '已完成';
-      case UploadStatus.failed:
+      case file_utils.UploadStatus.failed:
         return '失败';
     }
   }
 
-  Color _getStatusColor(UploadStatus status) {
+  Color _getStatusColor(file_utils.UploadStatus status) {
     switch (status) {
-      case UploadStatus.pending:
+      case file_utils.UploadStatus.pending:
         return Colors.grey;
-      case UploadStatus.compressing:
+      case file_utils.UploadStatus.compressing:
         return Colors.orange;
-      case UploadStatus.uploading:
+      case file_utils.UploadStatus.uploading:
         return Colors.blue;
-      case UploadStatus.paused:
+      case file_utils.UploadStatus.paused:
         return Colors.orange;
-      case UploadStatus.completed:
+      case file_utils.UploadStatus.completed:
         return Colors.green;
-      case UploadStatus.failed:
+      case file_utils.UploadStatus.failed:
         return Colors.red;
     }
   }
@@ -140,32 +128,37 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
         backgroundColor: Colors.pink,
         foregroundColor: Colors.white,
         actions: [
+          if (_hasActiveTasks())
+            IconButton(
+              icon: const Icon(Icons.pause),
+              onPressed: () {
+                MediaUploadService.pauseAllUploads();
+                _loadTasks();
+              },
+              tooltip: '暂停所有上传',
+            ),
+          if (_hasPausedTasks())
+            IconButton(
+              icon: const Icon(Icons.play_arrow),
+              onPressed: () {
+                MediaUploadService.resumeAllUploads();
+                _loadTasks();
+              },
+              tooltip: '恢复所有上传',
+            ),
+          if (_hasActiveTasks())
+            IconButton(
+              icon: const Icon(Icons.stop),
+              onPressed: () {
+                MediaUploadService.stopAllUploads();
+                _loadTasks();
+              },
+              tooltip: '停止所有上传',
+            ),
           if (_tasks.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.clear_all),
-              onPressed: () async {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('清空所有任务'),
-                    content: const Text('确定要清空所有上传任务吗？'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        child: const Text('取消'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        child: const Text('确定'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed == true) {
-                  await BackgroundUploadService.clearAllUploadTasks();
-                  _loadTasks();
-                }
-              },
+              onPressed: _clearAllTasks,
               tooltip: '清空所有任务',
             ),
         ],
@@ -181,228 +174,49 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
                 return Card(
                   margin:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: ExpansionTile(
-                    key: ValueKey(task.id), // 使用稳定的key避免重建时丢失展开状态
-                    title: Text(task.description),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('文件数量: ${task.mediaPaths.length}'),
-                        Text(
-                            '已上传: ${task.uploadedCount}/${task.mediaPaths.length}'),
-                        if (task.errorMessage != null)
-                          Text(
-                            '错误: ${task.errorMessage}',
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                      ],
+                  child: ListTile(
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        image: task.thumbPathSmall != null
+                            ? DecorationImage(
+                                image: MemoryImage(task.thumbPathSmall!),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                        color: task.thumbPathSmall == null
+                            ? Colors.grey[300]
+                            : null,
+                      ),
+                      child: task.thumbPathSmall == null
+                          ? Icon(
+                              task.type == file_utils.MediaType.video
+                                  ? Icons.videocam
+                                  : Icons.image,
+                              color: Colors.grey[600],
+                            )
+                          : null,
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _getStatusColor(task.status),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            _getStatusText(task.status),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                            ),
-                          ),
+                    title: Text(p.basename(task.srcPath)),
+                    subtitle: Text(
+                        '${(File(task.srcPath).lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB'),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(task.uploadStatus),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _getStatusText(task.uploadStatus),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
                         ),
-                        const SizedBox(width: 8),
-                        PopupMenuButton<String>(
-                          onSelected: (value) async {
-                            switch (value) {
-                              case 'pause':
-                                await BackgroundUploadService.pauseUpload(
-                                    task.id);
-                                _loadTasks();
-                                break;
-                              case 'resume':
-                                await BackgroundUploadService.resumeUpload(
-                                    task.id);
-                                _loadTasks();
-                                break;
-                              case 'cancel':
-                                await BackgroundUploadService.cancelUpload(
-                                    task.id);
-                                _loadTasks();
-                                break;
-                              case 'retry':
-                                await BackgroundUploadService.retryUpload(
-                                    task.id);
-                                _loadTasks();
-                                break;
-                              case 'delete':
-                                final confirmed = await showDialog<bool>(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: const Text('删除任务'),
-                                    content: const Text('确定要删除这个上传任务吗？'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(false),
-                                        child: const Text('取消'),
-                                      ),
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(true),
-                                        child: const Text('确定'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (confirmed == true) {
-                                  await BackgroundUploadService
-                                      .deleteUploadTask(task.id);
-                                  _loadTasks();
-                                }
-                                break;
-                            }
-                          },
-                          itemBuilder: (context) => [
-                            if (task.status == UploadStatus.compressing ||
-                                task.status == UploadStatus.uploading)
-                              const PopupMenuItem(
-                                value: 'pause',
-                                child: Text('暂停'),
-                              ),
-                            if (task.status == UploadStatus.paused)
-                              const PopupMenuItem(
-                                value: 'resume',
-                                child: Text('恢复'),
-                              ),
-                            if (task.status == UploadStatus.compressing ||
-                                task.status == UploadStatus.uploading ||
-                                task.status == UploadStatus.paused)
-                              const PopupMenuItem(
-                                value: 'cancel',
-                                child: Text('取消'),
-                              ),
-                            if (task.status == UploadStatus.failed &&
-                                task.errorMessage != '所有文件已被删除')
-                              const PopupMenuItem(
-                                value: 'retry',
-                                child: Text('重试'),
-                              ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('删除'),
-                            ),
-                          ],
-                        ),
-                      ],
+                      ),
                     ),
-                    children: task.mediaPaths.map((filePath) {
-                      return FutureBuilder<Map<String, dynamic>>(
-                        future: _getFileInfo(filePath),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            final info = snapshot.data!;
-                            final fileStatus = task.fileStatuses[filePath] ??
-                                UploadStatus.pending;
-                            return ListTile(
-                              leading: Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(4),
-                                  image: info['thumbnail'] != null
-                                      ? DecorationImage(
-                                          image: FileImage(info['thumbnail']),
-                                          fit: BoxFit.cover,
-                                        )
-                                      : null,
-                                  color: info['thumbnail'] == null
-                                      ? Colors.grey[300]
-                                      : null,
-                                ),
-                                child: info['thumbnail'] == null
-                                    ? Icon(
-                                        info['isVideo']
-                                            ? Icons.videocam
-                                            : Icons.image,
-                                        color: Colors.grey[600],
-                                      )
-                                    : null,
-                              ),
-                              title: Text(info['name']),
-                              subtitle:
-                                  Text('${info['size']} MB\n${info['date']}'),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: _getStatusColor(fileStatus),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      _getStatusText(fileStatus),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ),
-                                  // 只为未完成的文件显示删除按钮
-                                  if (fileStatus != UploadStatus.completed &&
-                                      fileStatus != UploadStatus.failed)
-                                    IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.red),
-                                      onPressed: () async {
-                                        final confirmed =
-                                            await showDialog<bool>(
-                                          context: context,
-                                          builder: (context) => AlertDialog(
-                                            title: const Text('删除文件'),
-                                            content: Text(
-                                                '确定要从上传任务中删除文件 "${info['name']}" 吗？'),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(context)
-                                                        .pop(false),
-                                                child: const Text('取消'),
-                                              ),
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(context)
-                                                        .pop(true),
-                                                child: const Text('确定'),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        if (confirmed == true) {
-                                          await BackgroundUploadService
-                                              .removeFileFromTask(
-                                                  task.id, filePath);
-                                          _loadTasks();
-                                        }
-                                      },
-                                    ),
-                                ],
-                              ),
-                            );
-                          } else {
-                            return const ListTile(
-                              title: Text('加载中...'),
-                            );
-                          }
-                        },
-                      );
-                    }).toList(),
                   ),
                 );
               },

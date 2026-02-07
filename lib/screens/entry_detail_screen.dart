@@ -53,7 +53,7 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
           _loadingImages[path] = true;
         });
         try {
-          final data = await widget.cloudService.downloadMedia(path);
+          final data = await widget.cloudService.downloadFile(path);
           if (data != null && mounted) {
             setState(() {
               _imageCache[path] = data;
@@ -79,7 +79,7 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
           _loadingVideoThumbnails[path] = true;
         });
         try {
-          final data = await widget.cloudService.downloadMedia(path);
+          final data = await widget.cloudService.downloadFile(path);
           if (data != null && mounted) {
             setState(() {
               _videoThumbnailCache[path] = data;
@@ -665,7 +665,12 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: _buildImageItem(index, thumbnails[index], BoxFit.cover),
+                child: _buildImageItem(
+                    index,
+                    crossAxisCount == 2
+                        ? thumbnails[index].replaceAll('small', 'medium')
+                        : thumbnails[index],
+                    BoxFit.cover),
               ),
             ),
           ),

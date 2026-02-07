@@ -39,6 +39,8 @@ dependencies:
   video_compress: ^3.1.2
   get_thumbnail_video: ^0.7.3
   video_trimmer: ^5.0.0
+  flutter_easyloading: ^3.0.5
+  flutter_image_compress: ^2.3.0
 
 dev_dependencies:
   flutter_test:

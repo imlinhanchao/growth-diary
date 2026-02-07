@@ -10,7 +10,12 @@ abstract class CloudStorageService {
   Future<void> saveDiaryEntry(DiaryEntry entry);
   Future<List<DiaryEntry>> loadAllEntries();
   Future<List<DiaryEntry>> loadEntriesPage(int offset, int limit);
-  Future<Uint8List?> downloadMedia(String path);
+  Future<Uint8List?> downloadFile(String path);
+  Future<bool> fileExists(String path);
+  Future<bool> uploadFile(String path, File file,
+      {Function(double)? onProgress});
+  Future<bool> uploadData(String path, Uint8List data,
+      {Function(double)? onProgress});
   Future<String> uploadMedia(File file, String fileName);
   Future<String> uploadImageWithThumbnails(File file, String fileName);
   Future<String> uploadVideoWithThumbnails(File file, String fileName);

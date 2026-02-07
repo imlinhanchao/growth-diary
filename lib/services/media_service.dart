@@ -123,7 +123,7 @@ class MediaService {
     required CloudStorageService cloudService,
   }) async {
     try {
-      final videoData = await cloudService.downloadMedia(videoPath);
+      final videoData = await cloudService.downloadFile(videoPath);
       if (videoData == null) {
         return const DownloadResult(
           success: false,

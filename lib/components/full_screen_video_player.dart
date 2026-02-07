@@ -68,7 +68,7 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
 
       // 从WebDAV下载视频数据
       final videoData =
-          await widget.webdavService.downloadMedia(widget.videoPaths[index]);
+          await widget.webdavService.downloadFile(widget.videoPaths[index]);
       if (videoData == null) {
         throw Exception('无法下载视频文件');
       }

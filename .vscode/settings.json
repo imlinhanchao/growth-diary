@@ -3,6 +3,5 @@
   "java.import.gradle.wrapper.enabled": true,
   "chat.tools.terminal.autoApprove": {
     "flutter": true
-  },
-  "dart.flutterSdkPath": ".fvm/versions/3.38.9"
+  }
 }

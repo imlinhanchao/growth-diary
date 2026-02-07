@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/home_screen.dart';
 import 'screens/setup_screen.dart';
@@ -6,7 +7,6 @@ import 'models/app_config.dart';
 import 'services/local_storage_service.dart';
 import 'services/webdav_service.dart';
 import 'services/cloud_storage_service.dart';
-import 'services/background_upload_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -38,6 +38,7 @@ class MyApp extends StatelessWidget {
       ],
       home: const SplashScreen(),
       debugShowCheckedModeBanner: false,
+      builder: EasyLoading.init(),
     );
   }
 }
@@ -65,14 +66,6 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
-    try {
-      // Initialize WorkManager first
-      await BackgroundUploadService.initialize();
-    } catch (e) {
-      // WorkManager initialization failed, but don't block app startup
-      print('WorkManager initialization failed: $e');
-    }
-
     // Load all configs from local storage
     final configs = await _localStorage.loadAllConfigs();
     final currentConfigId = await _localStorage.getCurrentConfigId();

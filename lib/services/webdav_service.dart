@@ -216,11 +216,35 @@ class WebDAVService implements CloudStorageService {
   }
 
   @override
-  Future<Uint8List?> downloadMedia(String path) async {
+  Future<bool> fileExists(String path) async {
+    if (_client == null || _id == null) return false;
+
+    try {
+      // 如果路径不以 'growth_diary/' 开头，则认为是相对路径，需要拼接前缀
+      final fullPath =
+          path.startsWith('growth_diary/') ? path : '${_getBasePath()}/$path';
+
+      // 分离文件名和父目录路径
+      final pathParts = fullPath.split('/');
+      final fileName = pathParts.last;
+      final parentPath = pathParts.sublist(0, pathParts.length - 1).join('/');
+
+      // 获取父目录内容
+      final parentContents = await _client!.readDir(parentPath);
+
+      // 检查文件中是否有同名文件
+      return parentContents.any((file) => file.name == fileName);
+    } catch (e) {
+      debugPrint('Error checking if file exists: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<Uint8List?> downloadFile(String path) async {
     // 检查缓存
     final cachedData = await _fileCache.get(path);
     if (cachedData != null) {
-      debugPrint('Cache hit for media: $path');
       return cachedData;
     }
 
@@ -257,6 +281,66 @@ class WebDAVService implements CloudStorageService {
     } catch (e) {
       debugPrint('Error uploading media: $e');
       rethrow;
+    }
+  }
+
+  @override
+  Future<bool> uploadFile(String path, File file,
+      {Function(double)? onProgress}) async {
+    if (_client == null || _id == null) {
+      return false;
+    }
+
+    try {
+      // 如果路径不以 'growth_diary/' 开头，则认为是相对路径，需要拼接前缀
+      final fullPath =
+          path.startsWith('growth_diary/') ? path : '${_getBasePath()}/$path';
+      await _client!.writeFromFile(
+        file.path,
+        fullPath,
+        onProgress: onProgress != null
+            ? (c, t) {
+                if (t > 0) {
+                  onProgress(c / t);
+                }
+              }
+            : null,
+      );
+      debugPrint('Successfully uploaded file to: $fullPath');
+      return true;
+    } catch (e) {
+      debugPrint('Error uploading file to $path: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> uploadData(String path, Uint8List data,
+      {Function(double)? onProgress}) async {
+    if (_client == null || _id == null) {
+      return false;
+    }
+
+    try {
+      // 如果路径不以 'growth_diary/' 开头，则认为是相对路径，需要拼接前缀
+      final fullPath =
+          path.startsWith('growth_diary/') ? path : '${_getBasePath()}/$path';
+      await _client!.write(
+        fullPath,
+        data,
+        onProgress: onProgress != null
+            ? (c, t) {
+                if (t > 0) {
+                  onProgress(c / t);
+                }
+              }
+            : null,
+      );
+      debugPrint('Successfully uploaded data to: $fullPath');
+      return true;
+    } catch (e) {
+      debugPrint('Error uploading data to $path: $e');
+      return false;
     }
   }
 
@@ -432,7 +516,7 @@ class WebDAVService implements CloudStorageService {
   @override
   Future<File?> saveToTempFile(String path, Uint8List? data) async {
     try {
-      final mediaData = data ?? await downloadMedia(path);
+      final mediaData = data ?? await downloadFile(path);
       if (mediaData == null) return null;
 
       final tempDir = await getTemporaryDirectory();

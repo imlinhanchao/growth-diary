@@ -4,15 +4,14 @@ import 'package:video_trimmer/video_trimmer.dart';
 import 'package:get_thumbnail_video/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import '../utils/file_utils.dart' as file_utils;
 
 class BatchVideoEditorScreen extends StatefulWidget {
-  final List<String> videoPaths;
-  final List<DateTime> originalDates;
+  final List<file_utils.MediaFile> mediaFiles;
 
   const BatchVideoEditorScreen({
     super.key,
-    required this.videoPaths,
-    required this.originalDates,
+    required this.mediaFiles,
   });
 
   @override
@@ -33,11 +32,28 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
   // 存储视频缩略图
   final List<String?> _thumbnails = [];
 
+  // 标记哪些视频被移除了
+  final List<bool> _removedVideos = [];
+
+  // 获取活跃视频的索引列表（未被移除的）
+  List<int> get _activeVideoIndices {
+    return List.generate(widget.mediaFiles.length, (i) => i)
+        .where((i) => !_removedVideos[i])
+        .toList();
+  }
+
+  // 将显示索引转换为实际索引
+  int _displayIndexToActualIndex(int displayIndex) {
+    return _activeVideoIndices[displayIndex];
+  }
+
+  // 将实际索引转换为显示索引
+
   @override
   void initState() {
     super.initState();
     // 初始化每个视频的状态和缩略图
-    for (int i = 0; i < widget.videoPaths.length; i++) {
+    for (int i = 0; i < widget.mediaFiles.length; i++) {
       _videoStates.add({
         'isEdited': false,
         'startValue': 0.0,
@@ -45,6 +61,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
         'trimmedPath': null,
       });
       _thumbnails.add(null);
+      _removedVideos.add(false);
     }
 
     // 异步生成缩略图
@@ -54,10 +71,10 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
   }
 
   Future<void> _generateThumbnails() async {
-    for (int i = 0; i < widget.videoPaths.length; i++) {
+    for (int i = 0; i < widget.mediaFiles.length; i++) {
       try {
         final thumbnailPath = await VideoThumbnail.thumbnailFile(
-          video: widget.videoPaths[i],
+          video: widget.mediaFiles[i].srcPath,
           thumbnailPath: (await getTemporaryDirectory()).path,
           imageFormat: ImageFormat.JPEG,
           maxWidth: 200,
@@ -77,7 +94,8 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
   }
 
   void _loadCurrentVideo() async {
-    await _trimmer.loadVideo(videoFile: File(widget.videoPaths[_currentIndex]));
+    await _trimmer.loadVideo(
+        videoFile: File(widget.mediaFiles[_currentIndex].srcPath));
     // 恢复之前保存的状态
     final state = _videoStates[_currentIndex];
     setState(() {
@@ -123,7 +141,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
         onSave: (String? trimmedPath) {
           if (trimmedPath != null) {
             // 保留原始文件的创建时间
-            final originalFile = File(widget.videoPaths[_currentIndex]);
+            final originalFile = File(widget.mediaFiles[_currentIndex].srcPath);
             final trimmedFile = File(trimmedPath);
 
             // 复制文件的修改时间
@@ -151,22 +169,26 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
     }
   }
 
-  void _switchToVideo(int index) async {
-    if (index == _currentIndex) return;
+  void _switchToVideo(int displayIndex) async {
+    final actualIndex = _displayIndexToActualIndex(displayIndex);
+    if (actualIndex == _currentIndex) return;
 
     // 保存当前视频的状态
     _videoStates[_currentIndex]['startValue'] = _startValue;
     _videoStates[_currentIndex]['endValue'] = _endValue;
 
     setState(() {
-      _currentIndex = index;
+      _currentIndex = actualIndex;
     });
 
     _loadCurrentVideo();
   }
 
-  void _removeVideo(int index) {
-    if (widget.videoPaths.length <= 1) {
+  void _removeVideo(int displayIndex) {
+    final actualIndex = _displayIndexToActualIndex(displayIndex);
+    final activeVideosCount =
+        _removedVideos.where((removed) => !removed).length;
+    if (activeVideosCount <= 1) {
       // 如果只剩一个视频，不允许移除
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('至少需要保留一个视频')),
@@ -175,28 +197,25 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
     }
 
     setState(() {
-      // 删除缩略图文件
-      if (_thumbnails[index] != null) {
-        try {
-          File(_thumbnails[index]!).deleteSync();
-        } catch (e) {
-          // 忽略删除失败的错误
+      // 标记视频为已移除
+      _removedVideos[actualIndex] = true;
+
+      // 找到下一个未被移除的视频
+      int nextIndex = _currentIndex;
+      if (_removedVideos[_currentIndex]) {
+        // 当前视频被移除了，找到下一个
+        for (int i = 0; i < _removedVideos.length; i++) {
+          if (!_removedVideos[i]) {
+            nextIndex = i;
+            break;
+          }
         }
       }
 
-      widget.videoPaths.removeAt(index);
-      widget.originalDates.removeAt(index);
-      _videoStates.removeAt(index);
-      _thumbnails.removeAt(index);
-
-      // 调整当前索引
-      if (_currentIndex >= index && _currentIndex > 0) {
-        _currentIndex--;
-      }
-
-      // 重新加载当前视频
-      _loadCurrentVideo();
+      _currentIndex = nextIndex;
     });
+
+    _loadCurrentVideo();
   }
 
   Future<bool> _onWillPop() async {
@@ -221,20 +240,29 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
   }
 
   void _finishEditing() {
-    // 收集所有编辑结果
-    final results = <Map<String, dynamic>>[];
-    for (int i = 0; i < widget.videoPaths.length; i++) {
+    // 收集所有编辑结果，返回修改后的 MediaFile 列表（过滤掉被移除的视频）
+    final results = <file_utils.MediaFile>[];
+    for (int i = 0; i < widget.mediaFiles.length; i++) {
+      // 跳过被移除的视频
+      if (_removedVideos[i]) continue;
+
       final state = _videoStates[i];
+      final originalMediaFile = widget.mediaFiles[i];
+
       if (state['isEdited'] && state['trimmedPath'] != null) {
-        results.add({
-          'path': state['trimmedPath'],
-          'originalDate': widget.originalDates[i],
-        });
+        // 如果视频被编辑过，创建新的 MediaFile 并替换 srcPath
+        final editedMediaFile = file_utils.MediaFile(
+          srcPath: state['trimmedPath'],
+          type: originalMediaFile.type,
+          thumbPathSmall: originalMediaFile.thumbPathSmall,
+          thumbPathMedium: originalMediaFile.thumbPathMedium,
+          uploadPath: originalMediaFile.uploadPath,
+          createdAt: originalMediaFile.createdAt,
+        );
+        results.add(editedMediaFile);
       } else {
-        results.add({
-          'path': widget.videoPaths[i],
-          'originalDate': widget.originalDates[i],
-        });
+        // 如果没有编辑过，使用原始的 MediaFile
+        results.add(originalMediaFile);
       }
     }
 
@@ -266,7 +294,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
           title: Text(
-            '编辑视频 (${_currentIndex + 1}/${widget.videoPaths.length})',
+            '编辑视频 (${_currentIndex + 1}/${_removedVideos.where((removed) => !removed).length})',
             style: const TextStyle(color: Colors.white, fontSize: 18),
           ),
           leading: IconButton(
@@ -417,15 +445,18 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 10),
-                        itemCount: widget.videoPaths.length,
-                        itemBuilder: (context, index) {
-                          final isSelected = index == _currentIndex;
-                          final isEdited = _videoStates[index]['isEdited'];
+                        itemCount: _activeVideoIndices.length,
+                        itemBuilder: (context, displayIndex) {
+                          final actualIndex =
+                              _displayIndexToActualIndex(displayIndex);
+                          final isSelected = actualIndex == _currentIndex;
+                          final isEdited =
+                              _videoStates[actualIndex]['isEdited'];
 
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                             child: GestureDetector(
-                              onTap: () => _switchToVideo(index),
+                              onTap: () => _switchToVideo(displayIndex),
                               child: Stack(
                                 clipBehavior: Clip.none,
                                 children: [
@@ -441,10 +472,10 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                                           ? Border.all(
                                               color: primaryColor, width: 2)
                                           : null,
-                                      image: _thumbnails[index] != null
+                                      image: _thumbnails[actualIndex] != null
                                           ? DecorationImage(
-                                              image: FileImage(
-                                                  File(_thumbnails[index]!)),
+                                              image: FileImage(File(
+                                                  _thumbnails[actualIndex]!)),
                                               fit: BoxFit.cover,
                                               colorFilter: isSelected
                                                   ? null
@@ -455,7 +486,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                                           : null,
                                       color: Colors.grey[800],
                                     ),
-                                    child: _thumbnails[index] == null
+                                    child: _thumbnails[actualIndex] == null
                                         ? const Center(
                                             child: Icon(Icons.videocam,
                                                 color: Colors.white24))
@@ -479,12 +510,12 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                                     ),
 
                                   // 移除按钮
-                                  if (widget.videoPaths.length > 1)
+                                  if (widget.mediaFiles.length > 1)
                                     Positioned(
                                       top: 0,
                                       right: 0,
                                       child: GestureDetector(
-                                        onTap: () => _removeVideo(index),
+                                        onTap: () => _removeVideo(displayIndex),
                                         child: Container(
                                           decoration: const BoxDecoration(
                                             color: Colors.red,

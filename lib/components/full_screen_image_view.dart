@@ -96,7 +96,7 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
       });
       try {
         final data =
-            await widget.webdavService.downloadMedia(widget.imagePaths[index]);
+            await widget.webdavService.downloadFile(widget.imagePaths[index]);
         if (data != null && mounted) {
           setState(() {
             _fullImageCache[index] = data;

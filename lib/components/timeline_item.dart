@@ -395,7 +395,7 @@ class _TimelineItemState extends State<TimelineItem> {
 
   Future<Uint8List?> _loadThumbnailData(String path) async {
     try {
-      final data = await widget.webdavService.downloadMedia(path);
+      final data = await widget.webdavService.downloadFile(path);
       return data;
     } catch (e) {
       debugPrint('Error loading thumbnail $path: $e');

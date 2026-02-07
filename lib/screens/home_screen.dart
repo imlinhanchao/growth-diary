@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'dart:typed_data';
-import 'dart:io';
 import 'dart:async';
-import 'package:image_picker/image_picker.dart';
-import 'package:exif/exif.dart';
-import 'package:file_picker/file_picker.dart';
 import '../models/app_config.dart';
 import '../models/diary_entry.dart';
 import '../services/cloud_storage_service.dart';
-import '../services/background_upload_service.dart';
+import '../services/media_upload_service.dart';
+import '../services/entry_creation_service.dart';
 import '../utils/age_calculator.dart';
+import '../utils/file_utils.dart' as file_utils;
 import '../services/local_storage_service.dart';
 import '../services/qr_service.dart';
 import 'settings_screen.dart';
@@ -61,7 +60,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Uint8List? _coverImageData;
   bool _isLoadingCoverImage = false;
   bool _isExpanded = false;
-  final ImagePicker _picker = ImagePicker();
   final ValueNotifier<UploadProgressData> _uploadProgressNotifier =
       ValueNotifier(UploadProgressData(false, ''));
 
@@ -72,28 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const int _pageSize = 10;
   DateTime? _targetMonth;
 
-  // 上传进度相关状态
-
-  DateTime _parseExifDate(String exifDate) {
-    // EXIF日期格式: "YYYY:MM:DD HH:MM:SS"
-    final parts = exifDate.split(' ');
-    if (parts.length == 2) {
-      final dateParts = parts[0].split(':');
-      final timeParts = parts[1].split(':');
-      if (dateParts.length == 3 && timeParts.length == 3) {
-        return DateTime(
-          int.parse(dateParts[0]),
-          int.parse(dateParts[1]),
-          int.parse(dateParts[2]),
-          int.parse(timeParts[0]),
-          int.parse(timeParts[1]),
-          int.parse(timeParts[2]),
-        );
-      }
-    }
-    // 如果解析失败，返回当前时间
-    return DateTime.now();
-  }
+  late EntryCreationService _entryCreationService;
 
   @override
   void initState() {
@@ -105,10 +82,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     // 设置上传完成回调，用于刷新首页内容
-    BackgroundUploadService.setUploadCompletedCallback(_onUploadCompleted);
+    MediaUploadService.setUploadCompletedCallback(_onUploadCompleted);
 
     // 设置上传进度更新回调，用于实时更新UI
-    BackgroundUploadService.setUploadProgressCallback(_onUploadProgressUpdated);
+    MediaUploadService.setUploadProgressCallback(_onUploadProgressUpdated);
 
     // 初始化WebDAV服务，为当前宝宝创建文件夹
     widget.cloudService.initialize(currentConfig).then((_) {
@@ -117,6 +94,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint('Error initializing WebDAV service: $e');
     });
 
+    // 初始化 EntryCreationService
+    _entryCreationService = EntryCreationService(widget.cloudService);
+
     _loadEntries();
   }
 
@@ -124,9 +104,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    BackgroundUploadService.removeUploadProgressCallback(
-        _onUploadProgressUpdated);
-    BackgroundUploadService.removeUploadCompletedCallback(_onUploadCompleted);
+    MediaUploadService.removeUploadProgressCallback();
+    MediaUploadService.removeUploadCompletedCallback();
     super.dispose();
   }
 
@@ -372,36 +351,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _addImage() async {
     print('Add image button pressed');
     _toggleExpanded(); // 关闭菜单
+
     try {
-      final List<XFile> images = await _picker.pickMultiImage();
-      if (images.isEmpty) return;
+      // 1. 调用 FileUtils.selectImages 选择图片
+      final mediaFiles =
+          await file_utils.FileUtils.selectImages(allowMultiple: true);
+      if (mediaFiles.isEmpty) return;
 
-      // 获取第一张图片的日期
-      DateTime detectedDate = DateTime.now();
-      if (images.isNotEmpty) {
-        final firstImage = File(images.first.path);
-        try {
-          final exifData =
-              await readExifFromBytes(await firstImage.readAsBytes());
-          final dateTimeOriginal = exifData['EXIF DateTimeOriginal'];
-          final imageDateTime = exifData['Image DateTime'];
-          if (dateTimeOriginal != null) {
-            detectedDate = _parseExifDate(dateTimeOriginal.toString());
-          } else if (imageDateTime != null) {
-            detectedDate = _parseExifDate(imageDateTime.toString());
-          } else {
-            final stat = await firstImage.stat();
-            detectedDate = stat.modified;
-          }
-        } catch (e) {
-          final stat = await firstImage.stat();
-          detectedDate = stat.modified;
-        }
-      }
+      // 2. 显示 loading 界面
+      if (!mounted) return;
+      EasyLoading.show(status: '正在处理图片...');
 
-      // 检查日期是否早于阈值日期（受孕日或出生前280天）
-      String? description;
-      DateTime? selectedDate;
+      // 3. 并行处理所有文件
+      final futures = mediaFiles.map((mediaFile) async {
+        await file_utils.FileUtils.fillCreationDate(mediaFile);
+        await file_utils.FileUtils.fillThumbnail(mediaFile);
+      });
+      await Future.wait(futures);
+      // 4. 关闭 loading
+      EasyLoading.dismiss();
+
+      // 5. 检查是否有图片创建日期大于阈值日期
       DateTime? thresholdDate;
       if (currentConfig.conceptionDate != null) {
         thresholdDate = currentConfig.conceptionDate;
@@ -410,43 +380,105 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             currentConfig.childBirthDate!.subtract(const Duration(days: 280));
       }
 
-      if (thresholdDate != null && detectedDate.isBefore(thresholdDate)) {
-        final result = await _showDateAndDescriptionDialog(detectedDate);
+      // 检查是否有任何图片的创建日期早于阈值日期
+      bool hasEarlyDate = false;
+      DateTime earliestDate = DateTime.now();
+
+      if (thresholdDate != null) {
+        for (final mediaFile in mediaFiles) {
+          if (mediaFile.createdAt != null) {
+            final fileDate = mediaFile.createdAt!;
+            if (fileDate.isBefore(thresholdDate)) {
+              hasEarlyDate = true;
+              if (fileDate.isBefore(earliestDate)) {
+                earliestDate = fileDate;
+              }
+            }
+          }
+        }
+      }
+
+      // 6. 根据检查结果显示相应对话框
+      String? description;
+      DateTime? selectedDate;
+
+      if (hasEarlyDate) {
+        final result = await _showDateAndDescriptionDialog(earliestDate);
         if (result == null) return; // 用户取消
         selectedDate = result['date'] as DateTime;
         description = result['description'] as String;
+        for (final mediaFile in mediaFiles) {
+          if (mediaFile.createdAt != null) {
+            final fileDate = mediaFile.createdAt!;
+            if (fileDate.isBefore(thresholdDate!)) {
+              // 覆盖创建日期
+              mediaFile.createdAt = selectedDate; // 使用用户选择的日期
+            }
+            mediaFile.description = description;
+          }
+        }
       } else {
         description = await _showDescriptionDialog();
         if (description == null) return;
       }
 
-      // 获取文件路径
-      final mediaPaths = images.map((xfile) => xfile.path).toList();
+      // 7. 通过 MediaUploadService 启动上传任务
+      final uploadService = MediaUploadService();
+      uploadService.initialize(
+          widget.cloudService, currentConfig, _entryCreationService);
 
-      // 启动后台上传
-      await BackgroundUploadService.startBackgroundUpload(
-        mediaPaths: mediaPaths,
+      // 创建 MediaTask 列表
+      final tasks = mediaFiles
+          .map((mediaFile) => MediaTask(
+                srcPath: mediaFile.srcPath,
+                type: mediaFile.type,
+                thumbPathSmall: mediaFile.thumbPathSmall,
+                thumbPathMedium: mediaFile.thumbPathMedium,
+                createdAt: mediaFile.createdAt,
+              ))
+          .toList();
+
+      // 启动上传
+      uploadService.startUpload(
+        tasks,
         description: description,
-        config: currentConfig,
-        overrideDate: selectedDate,
+        onEntryCreated: (entry) {
+          print('created a entry: ${entry.id}');
+          _updateUploadProgress();
+          if (mounted) {
+            _loadEntries();
+          }
+        },
+        onTaskCompleted: (task) {
+          print('Upload completed for ${task.srcPath}');
+          _updateUploadProgress();
+        },
+        onTaskFailed: (task, error) {
+          print('Upload failed for ${task.srcPath}: $error');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content:
+                      Text('上传失败: ${task.srcPath.split('/').last} - $error')),
+            );
+          }
+        },
+        onAllUploadsCompleted: () => _updateUploadProgress(), // 所有上传完成时更新进度显示
       );
-
-      // 立即更新上传进度显示
-      _updateUploadProgress();
 
       // 显示提示信息
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已添加到后台上传队列，请查看通知栏了解进度')),
+          const SnackBar(content: Text('已开始上传，请查看上传任务')),
         );
       }
-
-      // 不需要重新加载entries，因为后台上传完成后不会自动刷新
-      // 用户可以手动刷新或等待下次进入应用时看到新内容
     } catch (e) {
+      // 关闭可能的 loading 对话框
+      EasyLoading.dismiss();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('启动后台上传失败: $e')),
+          SnackBar(content: Text('添加图片失败: $e')),
         );
       }
     }
@@ -455,27 +487,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _addVideo() async {
     print('Add video button pressed');
     _toggleExpanded(); // 关闭菜单
+
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.video,
-        allowMultiple: true,
-      );
-      if (result == null || result.files.isEmpty) return;
+      // 1. 调用 FileUtils.selectVideos 选择视频
+      final mediaFiles =
+          await file_utils.FileUtils.selectVideos(allowMultiple: true);
+      if (mediaFiles.isEmpty) return;
 
-      // 获取第一个视频的日期作为参考
-      DateTime detectedDate = DateTime.now();
-      if (result.files.isNotEmpty) {
-        final firstFile = result.files.first;
-        if (firstFile.path != null) {
-          final videoFile = File(firstFile.path!);
-          final stat = await videoFile.stat();
-          detectedDate = stat.modified;
-        }
-      }
+      // 2. 显示 loading 界面
+      if (!mounted) return;
+      EasyLoading.show(status: '正在处理视频...');
 
-      // 检查日期是否早于阈值日期（受孕日或出生前280天）
-      String? description;
-      DateTime? selectedDate;
+      // 3. 并行处理所有文件
+      final futures = mediaFiles.map((mediaFile) async {
+        await file_utils.FileUtils.fillCreationDate(mediaFile);
+        await file_utils.FileUtils.fillThumbnail(mediaFile);
+      });
+      await Future.wait(futures);
+
+      // 4. 关闭 loading
+      EasyLoading.dismiss();
+
+      // 5. 检查是否有视频创建日期大于阈值日期
       DateTime? thresholdDate;
       if (currentConfig.conceptionDate != null) {
         thresholdDate = currentConfig.conceptionDate;
@@ -484,46 +517,63 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             currentConfig.childBirthDate!.subtract(const Duration(days: 280));
       }
 
-      if (thresholdDate != null && detectedDate.isBefore(thresholdDate)) {
-        final resultDialog = await _showDateAndDescriptionDialog(detectedDate);
-        if (resultDialog == null) return; // 用户取消
-        selectedDate = resultDialog['date'] as DateTime;
-        description = resultDialog['description'] as String;
+      // 检查是否有任何视频的创建日期早于阈值日期
+      bool hasEarlyDate = false;
+      DateTime earliestDate = DateTime.now();
+
+      if (thresholdDate != null) {
+        for (final mediaFile in mediaFiles) {
+          if (mediaFile.createdAt != null) {
+            final fileDate = mediaFile.createdAt!;
+            if (fileDate.isBefore(thresholdDate)) {
+              hasEarlyDate = true;
+              if (fileDate.isBefore(earliestDate)) {
+                earliestDate = fileDate;
+              }
+            }
+          }
+        }
+      }
+
+      // 6. 根据检查结果显示相应对话框
+      String? description;
+      DateTime? selectedDate;
+
+      if (hasEarlyDate) {
+        final result = await _showDateAndDescriptionDialog(earliestDate);
+        if (result == null) return; // 用户取消
+        selectedDate = result['date'] as DateTime;
+        description = result['description'] as String;
+        for (final mediaFile in mediaFiles) {
+          if (mediaFile.createdAt != null) {
+            final fileDate = mediaFile.createdAt!;
+            if (fileDate.isBefore(thresholdDate!)) {
+              // 覆盖创建日期
+              mediaFile.createdAt = selectedDate; // 使用用户选择的日期
+            }
+            mediaFile.description = description;
+          }
+        }
       } else {
         description = await _showDescriptionDialog();
         if (description == null) return;
       }
 
-      // 获取文件路径和创建时间
-      final mediaPaths = <String>[];
-      final originalDates = <DateTime>[];
-      for (final file in result.files) {
-        if (file.path != null) {
-          mediaPaths.add(file.path!);
-          final videoFile = File(file.path!);
-          final stat = await videoFile.stat();
-          originalDates.add(stat.modified);
-        }
-      }
-
-      // 视频编辑步骤 - 批量编辑界面
+      // 7. 视频编辑步骤 - 批量编辑界面（传入 MediaFile list，返回 MediaFile list）
       final editResults = await Navigator.push(
         // ignore: use_build_context_synchronously
         context,
         MaterialPageRoute(
           builder: (context) => BatchVideoEditorScreen(
-            videoPaths: List.from(mediaPaths),
-            originalDates: List.from(originalDates),
+            mediaFiles: List.from(mediaFiles),
           ),
         ),
       );
 
-      final editedPaths = <String>[];
+      final editedMediaFiles = <file_utils.MediaFile>[];
       if (editResults != null) {
         // 用户完成了编辑，使用编辑结果
-        for (final result in editResults) {
-          editedPaths.add(result['path']);
-        }
+        editedMediaFiles.addAll(editResults);
       } else {
         // 用户放弃了所有编辑，取消上传
         if (mounted) {
@@ -534,27 +584,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
-      // 启动后台上传
-      await BackgroundUploadService.startBackgroundUpload(
-        mediaPaths: editedPaths,
-        description: description,
-        config: currentConfig,
-        overrideDate: selectedDate,
-      );
+      // 8. 通过 MediaUploadService 启动上传任务
+      final uploadService = MediaUploadService();
+      uploadService.initialize(
+          widget.cloudService, currentConfig, _entryCreationService);
 
-      // 立即更新上传进度显示
-      _updateUploadProgress();
+      // 创建 MediaTask 列表
+      final tasks = editedMediaFiles
+          .map((mediaFile) => MediaTask(
+                srcPath: mediaFile.srcPath,
+                type: mediaFile.type,
+                thumbPathSmall: mediaFile.thumbPathSmall,
+                thumbPathMedium: mediaFile.thumbPathMedium,
+                createdAt: mediaFile.createdAt,
+              ))
+          .toList();
+
+      // 启动上传
+      uploadService.startUpload(
+        tasks,
+        description: description,
+        onEntryCreated: (entry) {
+          print('created a entry: ${entry.id}');
+          _updateUploadProgress();
+
+          if (mounted) {
+            _loadEntries();
+          }
+        },
+        onTaskCompleted: (task) {
+          print('Upload completed for ${task.srcPath}');
+          _updateUploadProgress();
+        },
+        onTaskFailed: (task, error) {
+          print('Upload failed for ${task.srcPath}: $error');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content:
+                      Text('上传失败: ${task.srcPath.split('/').last} - $error')),
+            );
+          }
+          _updateUploadProgress();
+        },
+        onAllUploadsCompleted: () => _updateUploadProgress(), // 所有上传完成时更新进度显示
+      );
 
       // 显示提示信息
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已添加到后台上传队列，请查看通知栏了解进度')),
+          const SnackBar(content: Text('已开始上传，请查看上传任务')),
         );
       }
     } catch (e) {
+      // 关闭可能的 loading 对话框
+      EasyLoading.dismiss();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('启动后台上传失败: $e')),
+          SnackBar(content: Text('添加记录失败: $e')),
         );
       }
     }
@@ -576,9 +664,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _showBackgroundUploadNotification() {
     // 检查是否有活跃的上传任务
-    if (BackgroundUploadService.hasActiveUploads()) {
+    if (MediaUploadService.hasActiveUploads()) {
       // 显示一个持续的通知，提醒用户有上传任务正在后台进行
-      BackgroundUploadService.showBackgroundNotification(
+      MediaUploadService.showBackgroundNotification(
         '成长日记上传中',
         '应用已切换到后台，上传任务将继续进行',
       );
@@ -607,24 +695,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _updateUploadProgress() {
-    final allTasks = BackgroundUploadService.getAllUploadTasks();
-    final activeTasks = allTasks
-        .where((task) =>
-            task.status == UploadStatus.uploading ||
-            task.status == UploadStatus.compressing)
-        .toList();
-
-    // 计算当前上传进度
-    int totalUploadFiles = 0;
-    int uploadedFilesCount = 0;
-    for (final task in activeTasks) {
-      totalUploadFiles += task.mediaPaths.length;
-      uploadedFilesCount += task.uploadedCount; // 每个文件上传分为两步：上传文件和缩略图
-    }
-
-    final hasActiveTasks = activeTasks.isNotEmpty;
-    final progressText =
-        hasActiveTasks ? '$uploadedFilesCount/$totalUploadFiles' : '';
+    final hasActiveTasks = MediaUploadService.hasActiveUploads();
+    final progressText = hasActiveTasks
+        ? '${MediaUploadService.getCompletedTasks()}/${MediaUploadService.getTotalTasks()}'
+        : '';
 
     _uploadProgressNotifier.value =
         UploadProgressData(hasActiveTasks, progressText);
@@ -1807,7 +1881,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
 
     try {
-      final data = await widget.cloudService.downloadMedia(coverImagePath);
+      final data = await widget.cloudService.downloadFile(coverImagePath);
       if (mounted) {
         setState(() {
           _coverImageData = data;
