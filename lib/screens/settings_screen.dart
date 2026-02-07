@@ -185,108 +185,167 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('设置'),
-        backgroundColor: Colors.transparent,
+        title: const Text('设置', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: Colors.white,
         elevation: 0,
+        scrolledUnderElevation: 0.5,
         foregroundColor: Colors.black,
       ),
       body: ListView(
         children: [
           _buildSection('宝宝信息'),
-          ListTile(
-            leading: const Icon(Icons.baby_changing_station),
-            title: const Text('宝宝昵称'),
-            subtitle: Text(_config.babyName),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showEditChildNameDialog,
-          ),
-          ListTile(
-            leading: const Icon(Icons.cake),
-            title: const Text('宝宝生日'),
-            subtitle: Text(
-              _config.babyBirthDate != null
+          _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.baby_changing_station,
+              title: '宝宝昵称',
+              subtitle: _config.babyName,
+              onTap: _showEditChildNameDialog,
+            ),
+            _buildDivider(),
+            _buildSettingsTile(
+              icon: Icons.cake,
+              title: '宝宝生日',
+              subtitle: _config.babyBirthDate != null
                   ? '${_config.babyBirthDate!.year}-${_config.babyBirthDate!.month.toString().padLeft(2, '0')}-${_config.babyBirthDate!.day.toString().padLeft(2, '0')}'
                   : '未设置',
+              onTap: _editBirthDate,
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _editBirthDate,
-          ),
-          ListTile(
-            leading: const Icon(Icons.pregnant_woman),
-            title: const Text('受孕日'),
-            subtitle: Text(
-              _config.babyConceptionDate != null
+            _buildDivider(),
+            _buildSettingsTile(
+              icon: Icons.pregnant_woman,
+              title: '受孕日',
+              subtitle: _config.babyConceptionDate != null
                   ? '${_config.babyConceptionDate!.year}-${_config.babyConceptionDate!.month.toString().padLeft(2, '0')}-${_config.babyConceptionDate!.day.toString().padLeft(2, '0')}'
                   : '未设置',
+              onTap: _editConceptionDate,
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _editConceptionDate,
-          ),
-          const Divider(),
+          ]),
           _buildSection('上传设置'),
-          ListTile(
-            leading: const Icon(Icons.video_file),
-            title: const Text('视频压缩阈值'),
-            subtitle: Text(
-              _config.videoCompressionThreshold == 0
+          _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.video_file,
+              title: '视频压缩阈值',
+              subtitle: _config.videoCompressionThreshold == 0
                   ? '始终不压缩'
                   : '${_config.videoCompressionThreshold} MB',
+              onTap: _editVideoCompressionThreshold,
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _editVideoCompressionThreshold,
-          ),
-          const Divider(),
+          ]),
           _buildSection('云存储配置'),
-          ListTile(
-            leading: const Icon(Icons.cloud),
-            title: const Text('WebDAV'),
-            subtitle: Text('${_config.webdavUrl} (${_config.username})'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => WebDAVConfigScreen(
-                    mode: WebDAVConfigMode.settings,
-                    config: _config,
-                    webdavService: widget.cloudService,
-                    onConfigChanged: widget.onConfigChanged,
+          _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.cloud,
+              title: 'WebDAV',
+              subtitle: '${_config.webdavUrl} (${_config.username})',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => WebDAVConfigScreen(
+                      mode: WebDAVConfigMode.settings,
+                      config: _config,
+                      webdavService: widget.cloudService,
+                      onConfigChanged: widget.onConfigChanged,
+                    ),
                   ),
-                ),
-              ).then((_) {
-                // 刷新配置
-                setState(() {});
-              });
-            },
-          ),
-          const Divider(),
+                ).then((_) {
+                  // 刷新配置
+                  setState(() {});
+                });
+              },
+            ),
+          ]),
           _buildSection('应用'),
-          ListTile(
-            leading: const Icon(Icons.settings_applications),
-            title: const Text('应用设置'),
-            subtitle: const Text('数据管理、缓存清理、账户设置'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => AppSettingsScreen(
-                    config: _config,
-                    cloudService: widget.cloudService,
-                    onConfigChanged: widget.onConfigChanged,
+          _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.settings_applications,
+              title: '应用设置',
+              subtitle: '数据管理、缓存清理、账户设置',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AppSettingsScreen(
+                      config: _config,
+                      cloudService: widget.cloudService,
+                      onConfigChanged: widget.onConfigChanged,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-          const ListTile(
-            leading: Icon(Icons.info),
-            title: Text('关于'),
-            subtitle: Text('成长日记 v1.0.0'),
-          ),
+                );
+              },
+            ),
+            _buildDivider(),
+            _buildSettingsTile(
+              icon: Icons.info_outline,
+              title: '关于',
+              subtitle: '成长日记 v1.0.0',
+              showTrailing: false,
+            ),
+          ]),
+          const SizedBox(height: 32),
         ],
       ),
     );
+  }
+
+  Widget _buildSettingsGroup(List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildSettingsTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    VoidCallback? onTap,
+    bool showTrailing = true,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).primaryColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: Theme.of(context).primaryColor, size: 20),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
+      ),
+      subtitle: subtitle != null
+          ? Text(subtitle,
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]))
+          : null,
+      trailing: showTrailing
+          ? Icon(Icons.chevron_right, color: Colors.grey[400], size: 20)
+          : null,
+      onTap: onTap,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Divider(
+        height: 1, thickness: 0.5, indent: 56, color: Colors.grey[200]);
   }
 }

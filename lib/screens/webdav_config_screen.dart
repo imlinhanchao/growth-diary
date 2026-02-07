@@ -40,7 +40,9 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _newMirrorController = TextEditingController();
   bool _isTestingConnection = false;
+  String? _defaultWebdavUrl; // 从 local storage 读取的默认地址
 
   @override
   void initState() {
@@ -49,6 +51,27 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
     _urlController.text = _config.webdavUrl;
     _usernameController.text = _config.username;
     _passwordController.text = _config.password;
+    _loadDefaultWebdavUrl();
+  }
+
+  Future<void> _loadDefaultWebdavUrl() async {
+    final defaultUrl =
+        await _localStorage.getString('defaultWebdavUrl:${_config.webdavUrl}');
+    setState(() {
+      _defaultWebdavUrl = defaultUrl;
+    });
+  }
+
+  Future<void> _saveDefaultWebdavUrl(String? url) async {
+    if (url != null) {
+      await _localStorage.saveString(
+          'defaultWebdavUrl:${_config.webdavUrl}', url);
+    } else {
+      await _localStorage.remove('defaultWebdavUrl:${_config.webdavUrl}');
+    }
+    setState(() {
+      _defaultWebdavUrl = url;
+    });
   }
 
   @override
@@ -56,7 +79,37 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
     _urlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _newMirrorController.dispose();
     super.dispose();
+  }
+
+  void _addMirror() {
+    final url = _newMirrorController.text.trim();
+    if (url.isNotEmpty && !_config.webdavMirrors.contains(url)) {
+      setState(() {
+        _config.webdavMirrors.add(url);
+        if (_defaultWebdavUrl == null) {
+          _saveDefaultWebdavUrl(url);
+        }
+      });
+      _newMirrorController.clear();
+    }
+  }
+
+  void _removeMirror(String url) {
+    setState(() {
+      _config.webdavMirrors.remove(url);
+      if (_defaultWebdavUrl == url) {
+        final newDefault = _config.webdavMirrors.isNotEmpty
+            ? _config.webdavMirrors.first
+            : null;
+        _saveDefaultWebdavUrl(newDefault);
+      }
+    });
+  }
+
+  void _setDefaultMirror(String url) {
+    _saveDefaultWebdavUrl(url);
   }
 
   Future<void> _testWebDAVConnection() async {
@@ -121,6 +174,7 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
       webdavUrl: _urlController.text.trim(),
       username: _usernameController.text.trim(),
       password: _passwordController.text,
+      webdavMirrors: _config.webdavMirrors,
     );
 
     if (widget.mode == WebDAVConfigMode.settings) {
@@ -144,91 +198,291 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
     final isSetupMode = widget.mode == WebDAVConfigMode.setup;
 
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('WebDAV 配置'),
-        actions: null, // 统一使用底部按钮，不在AppBar显示
+        title: Text(isSetupMode ? '配置云存储' : 'WebDAV 设置',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.cloud,
-                size: 80,
-                color: Colors.blue,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                isSetupMode ? '配置云存储' : '修改WebDAV设置',
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.03),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                isSetupMode ? '设置WebDAV连接以同步您的成长日记数据' : '修改WebDAV连接配置',
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    _buildTextField(
+                      controller: _urlController,
+                      label: '服务器地址 (URL)',
+                      hint: 'https://example.com/webdav',
+                      icon: Icons.link,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return '请输入 WebDAV URL';
+                        }
+                        if (!value.startsWith('http')) {
+                          return '请输入有效的 URL';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    _buildTextField(
+                      controller: _usernameController,
+                      label: '用户名',
+                      hint: '请输入用户名',
+                      icon: Icons.person_outline,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return '请输入用户名';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    _buildTextField(
+                      controller: _passwordController,
+                      label: '密码',
+                      hint: '请输入密码',
+                      icon: Icons.lock_outline,
+                      obscureText: true,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return '请输入密码';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                 ),
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 40),
-              TextFormField(
-                controller: _urlController,
-                decoration: const InputDecoration(
-                  labelText: 'WebDAV URL',
-                  hintText: 'https://example.com/webdav',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.link),
+              const SizedBox(height: 32),
+
+              // 镜像地址管理
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.03),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return '请输入 WebDAV URL';
-                  }
-                  if (!value.startsWith('http')) {
-                    return '请输入有效的 URL';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _usernameController,
-                decoration: const InputDecoration(
-                  labelText: '用户名',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.cloud_sync,
+                            color: Colors.blue.shade500, size: 24),
+                        const SizedBox(width: 12),
+                        Text(
+                          '镜像地址管理',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '配置多个 WebDAV 服务器地址作为数据镜像，提高数据可用性',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 添加新镜像
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _newMirrorController,
+                            decoration: InputDecoration(
+                              hintText: '输入新的镜像地址',
+                              hintStyle: TextStyle(
+                                  color: Colors.grey.shade400, fontSize: 14),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                    color: Colors.blue.shade300, width: 1.5),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey.shade50,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 16),
+                            ),
+                            onSubmitted: (_) => _addMirror(),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: _addMirror,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade600,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('添加'),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // 镜像列表
+                    if (_config.webdavMirrors.isNotEmpty) ...[
+                      Text(
+                        '当前镜像 (${_config.webdavMirrors.length})',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ..._config.webdavMirrors.map((url) => Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _defaultWebdavUrl == url
+                                    ? Colors.blue.shade200
+                                    : Colors.grey.shade200,
+                                width: _defaultWebdavUrl == url ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        url,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.grey.shade800,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      if (_defaultWebdavUrl == url) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '默认载入地址',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.blue.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (_defaultWebdavUrl != url)
+                                  TextButton(
+                                    onPressed: () => _setDefaultMirror(url),
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 6),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: Text(
+                                      '设为默认',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blue.shade600,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                IconButton(
+                                  onPressed: () => _removeMirror(url),
+                                  icon: Icon(Icons.delete_outline,
+                                      size: 20, color: Colors.red.shade400),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ] else ...[
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.cloud_off_outlined,
+                                size: 48,
+                                color: Colors.grey.shade300,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                '暂无镜像地址',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return '请输入用户名';
-                  }
-                  return null;
-                },
               ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: '密码',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return '请输入密码';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 30),
+
+              const SizedBox(height: 32),
               Row(
                 children: [
                   Expanded(
@@ -236,44 +490,71 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
                       onPressed:
                           _isTestingConnection ? null : _testWebDAVConnection,
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        side: BorderSide(color: Colors.blue.shade200),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        foregroundColor: Colors.blue.shade700,
+                        backgroundColor: Colors.white,
                       ),
                       child: _isTestingConnection
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.blue.shade700,
+                              ),
                             )
-                          : const Text('测试连接'),
+                          : const Text('测试连接',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
                   ),
-                  const SizedBox(width: 15),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: _saveSettings,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
+                        backgroundColor: Colors.blue.shade600,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        elevation: 2,
+                        shadowColor: Colors.blue.shade200,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text('保存配置'),
+                      child: const Text('保存配置',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ],
               ),
               if (!isSetupMode) ...[
-                const SizedBox(height: 16),
-                const Text(
-                  '注意：修改配置后，数据将迁移到新的存储路径。',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade100),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 20, color: Colors.orange.shade700),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '注意：修改配置后，将会采用新的配置载入数据，数据需要手动迁移。',
+                          style: TextStyle(
+                            color: Colors.orange.shade800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -281,6 +562,49 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    required IconData icon,
+    bool obscureText = false,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      style: const TextStyle(fontSize: 16),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+        labelStyle: TextStyle(color: Colors.grey.shade600),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.blue.shade300, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade200, width: 1),
+        ),
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        prefixIcon: Icon(icon, color: Colors.grey.shade500, size: 22),
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      ),
+      validator: validator,
     );
   }
 }

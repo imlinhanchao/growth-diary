@@ -249,6 +249,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _entries.clear();
       _thumbnailCache.clear();
       _thumbnailFutures.clear();
+      _coverImageData = null; // 清除封面图缓存
+      _isLoadingCoverImage = false; // 重置加载状态
       _isLoading = true;
       _hasMoreData = true;
     });
@@ -692,14 +694,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final bool showExpanded = _coverImageData != null || _isLoadingCoverImage;
 
     return SliverAppBar(
-      expandedHeight: showExpanded ? 200.0 : null,
+      expandedHeight: showExpanded ? 260.0 : null,
       pinned: true,
-      stretch: showExpanded,
+      stretch: true,
       backgroundColor: Colors.pink,
-      foregroundColor: Colors.white,
+      elevation: 0,
+      scrolledUnderElevation: 0,
       leading: Builder(
         builder: (context) => IconButton(
           icon: const Icon(Icons.menu),
+          color: Colors.white,
           onPressed: () {
             Scaffold.of(context).openDrawer();
           },
@@ -722,21 +726,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 child: Text(
                   currentConfig.babyName,
                   overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ),
               if (progressData.hasActiveTasks) ...[
                 const SizedBox(width: 12),
-                Text(
-                  progressData.progressText,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        progressData.progressText,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.upload, size: 20),
+                  icon: const Icon(Icons.arrow_forward_ios,
+                      size: 14, color: Colors.white),
                   onPressed: () {
                     Navigator.push(
                       context,
@@ -748,6 +775,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   tooltip: '查看上传任务',
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ],
@@ -757,7 +785,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       actions: [
         Builder(
           builder: (context) => IconButton(
-            icon: const Icon(Icons.access_time),
+            icon: const Icon(Icons.calendar_month),
+            color: Colors.white,
             onPressed: () {
               Scaffold.of(context).openEndDrawer();
             },
@@ -765,6 +794,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         IconButton(
           icon: const Icon(Icons.settings),
+          color: Colors.white,
           onPressed: () {
             Navigator.push(
               context,
@@ -785,7 +815,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           configs[currentConfigId] ?? configs.values.first;
                     });
                     // 切换到新配置，确保界面更新
-                    _switchConfig();
+                    await _handleConfigChanged(newConfig);
                   },
                 ),
               ),
@@ -793,38 +823,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           },
         ),
       ],
-      flexibleSpace: showExpanded
-          ? FlexibleSpaceBar(
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.pink.shade200, Colors.pink.shade400],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                  ),
-                  if (_coverImageData != null) ...[
-                    Image.memory(
-                      _coverImageData!,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                    ),
-                    // 蒙版
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.3),
-                    ),
-                  ] else if (_isLoadingCoverImage)
-                    const Center(
-                        child: CircularProgressIndicator(color: Colors.white)),
-                ],
+      flexibleSpace: FlexibleSpaceBar(
+        stretchModes: const [StretchMode.zoomBackground],
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.pink.shade300, Colors.pink.shade500],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
-            )
-          : null,
+            ),
+            if (showExpanded && _coverImageData != null) ...[
+              Image.memory(
+                _coverImageData!,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+              // 蒙版
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.5),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+            ] else if (showExpanded && _isLoadingCoverImage)
+              const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -863,53 +902,146 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 // 视频按钮 - 向上展开
                 if (_isExpanded)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: FloatingActionButton(
-                      heroTag: 'video_fab',
-                      onPressed: _addVideo,
-                      backgroundColor: Colors.pink.shade200,
-                      foregroundColor: Colors.white,
-                      mini: true,
-                      shape: const CircleBorder(),
-                      child: const Icon(Icons.videocam),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            '添加视频',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.pink.shade700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FloatingActionButton(
+                          heroTag: 'video_fab',
+                          onPressed: _addVideo,
+                          backgroundColor: Colors.pink.shade300,
+                          foregroundColor: Colors.white,
+                          mini: true,
+                          shape: const CircleBorder(),
+                          child: const Icon(Icons.videocam),
+                        ),
+                      ],
                     ),
                   ),
                 // 图片按钮 - 向上展开
                 if (_isExpanded)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: FloatingActionButton(
-                      heroTag: 'image_fab',
-                      onPressed: _addImage,
-                      backgroundColor: Colors.pink.shade300,
-                      foregroundColor: Colors.white,
-                      mini: true,
-                      shape: const CircleBorder(),
-                      child: const Icon(Icons.photo),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            '添加照片',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.pink.shade700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FloatingActionButton(
+                          heroTag: 'image_fab',
+                          onPressed: _addImage,
+                          backgroundColor: Colors.pink.shade400,
+                          foregroundColor: Colors.white,
+                          mini: true,
+                          shape: const CircleBorder(),
+                          child: const Icon(Icons.photo),
+                        ),
+                      ],
                     ),
                   ),
                 // 日记按钮 - 向上展开
                 if (_isExpanded)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: FloatingActionButton(
-                      heroTag: 'diary_fab',
-                      onPressed: _addDiary,
-                      backgroundColor: Colors.pink.shade400,
-                      foregroundColor: Colors.white,
-                      mini: true,
-                      shape: const CircleBorder(),
-                      child: const Icon(Icons.book),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            '写日记',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.pink.shade700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FloatingActionButton(
+                          heroTag: 'diary_fab',
+                          onPressed: _addDiary,
+                          backgroundColor: Colors.pink.shade500,
+                          foregroundColor: Colors.white,
+                          mini: true,
+                          shape: const CircleBorder(),
+                          child: const Icon(Icons.edit_note),
+                        ),
+                      ],
                     ),
                   ),
+
                 FloatingActionButton(
                   heroTag: 'main_fab',
                   onPressed: _toggleExpanded,
                   backgroundColor: Colors.pink,
                   foregroundColor: Colors.white,
                   shape: const CircleBorder(),
-                  child: Icon(_isExpanded ? Icons.close : Icons.add),
+                  elevation: 4,
+                  child: AnimatedRotation(
+                    turns: _isExpanded ? 0.125 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.add, size: 28),
+                  ),
                 ),
               ],
             ),
@@ -964,24 +1096,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.baby_changing_station,
-            size: 100,
-            color: Colors.grey.shade300,
-          ),
-          const SizedBox(height: 20),
-          Text(
-            '还没有记录',
-            style: TextStyle(
-              fontSize: 20,
-              color: Colors.grey.shade600,
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.pink.shade50,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.auto_stories_outlined,
+              size: 64,
+              color: Colors.pink.shade200,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 24),
           Text(
-            '点击右下角按钮添加第一条记录',
+            '开启成长之旅',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '记录宝宝的每一个珍贵瞬间\n照片、视频或日记',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              height: 1.5,
               color: Colors.grey.shade500,
             ),
           ),
@@ -1239,15 +1381,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Column(
         children: [
           Container(
-            height: 100,
-            padding: const EdgeInsets.only(top: 20),
+            height: MediaQuery.of(context).padding.top + 60,
+            padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
             alignment: Alignment.center,
-            child: const Text(
-              '时间轴',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.pink.shade400, Colors.pink.shade300],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  '时间轴',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -1401,16 +1559,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Container(
             width: double.infinity,
             padding: EdgeInsets.fromLTRB(
-                24, MediaQuery.of(context).padding.top + 24, 24, 24),
+                24, MediaQuery.of(context).padding.top + 32, 24, 32),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.pink.shade400, Colors.pink.shade200],
-                begin: Alignment.bottomLeft,
-                end: Alignment.topRight,
-              ),
+              image: _coverImageData != null
+                  ? DecorationImage(
+                      image: MemoryImage(_coverImageData!),
+                      fit: BoxFit.cover,
+                      colorFilter: ColorFilter.mode(
+                        Colors.black.withOpacity(0.3),
+                        BlendMode.darken,
+                      ),
+                    )
+                  : null,
+              gradient: _coverImageData == null
+                  ? LinearGradient(
+                      colors: [Colors.pink.shade400, Colors.pink.shade200],
+                      begin: Alignment.bottomLeft,
+                      end: Alignment.topRight,
+                    )
+                  : null,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.pink.withValues(alpha: 0.3),
+                  color: Colors.black.withOpacity(0.1),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),
@@ -1422,16 +1592,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
+                    color: Colors.white.withOpacity(0.2),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.4),
+                      color: Colors.white.withOpacity(0.4),
                       width: 2,
                     ),
                   ),
                   child: const Icon(
                     Icons.auto_stories_rounded,
-                    size: 40,
+                    size: 32,
                     color: Colors.white,
                   ),
                 ),
@@ -1440,9 +1610,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   '成长日记',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: 26,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.2,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 4,
+                        color: Colors.black26,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1451,15 +1628,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Icon(
                       Icons.favorite,
                       size: 14,
-                      color: Colors.white.withValues(alpha: 0.8),
+                      color: Colors.white.withOpacity(0.9),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       '记录每一天的惊喜',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
+                        color: Colors.white.withOpacity(0.95),
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
+                        shadows: const [
+                          Shadow(
+                            blurRadius: 2,
+                            color: Colors.black26,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                     ),
                   ],

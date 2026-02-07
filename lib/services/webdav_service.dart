@@ -10,11 +10,13 @@ import '../models/diary_entry.dart';
 import '../models/app_config.dart';
 import 'cloud_storage_service.dart';
 import 'file_cache.dart';
+import 'local_storage_service.dart';
 
 class WebDAVService implements CloudStorageService {
   webdav.Client? _client;
   String? _id;
   final FileCache _fileCache = FileCache();
+  final LocalStorageService _localStorage = LocalStorageService();
 
   String _getBasePath() => 'growth_diary/$_id';
 
@@ -29,11 +31,21 @@ class WebDAVService implements CloudStorageService {
 
   @override
   Future<void> initialize(AppConfig config) async {
-    debugPrint(
-        'Initializing WebDAV for id: ${config.id}, url: ${config.webdavUrl}');
-    if (config.webdavUrl.isNotEmpty && config.username.isNotEmpty) {
+    // 从 local storage 获取 defaultWebdavUrl，如果没有则使用 webdavUrl
+    final defaultWebdavUrl =
+        await _localStorage.getString('defaultWebdavUrl:${config.webdavUrl}') ??
+            config.webdavUrl;
+
+    final effectiveUrl = defaultWebdavUrl.isNotEmpty
+        ? defaultWebdavUrl
+        : (config.webdavMirrors.isNotEmpty
+            ? config.webdavMirrors.first
+            : config.webdavUrl);
+
+    debugPrint('Initializing WebDAV for id: ${config.id}, url: $effectiveUrl');
+    if (effectiveUrl.isNotEmpty && config.username.isNotEmpty) {
       _client = webdav.newClient(
-        config.webdavUrl,
+        effectiveUrl,
         user: config.username,
         password: config.password,
         debug: false,

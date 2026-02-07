@@ -57,7 +57,7 @@ class Baby {
 
 class AppConfig {
   String id;
-  String webdavUrl;
+  String webdavUrl; // 保留向后兼容
   String username;
   String password;
   String babyName;
@@ -65,6 +65,7 @@ class AppConfig {
   DateTime? babyConceptionDate;
   String? babyCoverImagePath; // 宝宝封面图路径
   int videoCompressionThreshold; // 视频压缩阈值，单位MB，0表示不压缩
+  List<String> webdavMirrors = []; // WebDAV 镜像地址列表
 
   AppConfig({
     this.id = '',
@@ -76,9 +77,16 @@ class AppConfig {
     this.babyConceptionDate,
     this.babyCoverImagePath,
     this.videoCompressionThreshold = 10, // 默认10MB
+    List<String>? webdavMirrors,
   }) {
     if (id.isEmpty) {
       id = const Uuid().v4();
+    }
+    this.webdavMirrors = webdavMirrors ?? [];
+
+    // 向后兼容：如果有旧的 webdavUrl 但 mirrors 为空，则迁移
+    if (this.webdavUrl.isNotEmpty && this.webdavMirrors.isEmpty) {
+      this.webdavMirrors.add(this.webdavUrl);
     }
   }
 
@@ -118,6 +126,7 @@ class AppConfig {
     DateTime? babyConceptionDate,
     String? babyCoverImagePath,
     int? videoCompressionThreshold,
+    List<String>? webdavMirrors,
   }) {
     return AppConfig(
       id: id ?? this.id,
@@ -130,6 +139,7 @@ class AppConfig {
       babyCoverImagePath: babyCoverImagePath ?? this.babyCoverImagePath,
       videoCompressionThreshold:
           videoCompressionThreshold ?? this.videoCompressionThreshold,
+      webdavMirrors: webdavMirrors ?? List.from(this.webdavMirrors),
     );
   }
 
@@ -144,6 +154,7 @@ class AppConfig {
       'babyConceptionDate': babyConceptionDate?.toIso8601String(),
       'babyCoverImagePath': babyCoverImagePath,
       'videoCompressionThreshold': videoCompressionThreshold,
+      'webdavMirrors': webdavMirrors,
     };
   }
 
@@ -166,6 +177,10 @@ class AppConfig {
               : null),
       babyCoverImagePath: json['babyCoverImagePath'],
       videoCompressionThreshold: json['videoCompressionThreshold'] ?? 10,
+      webdavMirrors: (json['webdavMirrors'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
     );
   }
 }

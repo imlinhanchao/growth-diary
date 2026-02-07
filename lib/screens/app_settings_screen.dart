@@ -351,34 +351,58 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('应用设置'),
-        backgroundColor: Colors.transparent,
+        title:
+            const Text('应用设置', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: Colors.white,
         elevation: 0,
-        foregroundColor: Colors.black,
+        scrolledUnderElevation: 0,
       ),
       body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           _buildSection('数据管理'),
-          ListTile(
-            leading: const Icon(Icons.qr_code),
-            title: const Text('导出配置二维码'),
-            subtitle: const Text('生成包含宝宝配置信息的二维码'),
-            onTap: _showQRCode,
-          ),
-          ListTile(
-            leading: const Icon(Icons.cleaning_services),
-            title: const Text('清除缓存'),
-            subtitle: const Text('清除已下载的媒体文件缓存'),
-            onTap: _clearCache,
-          ),
-          const Divider(),
+          _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.qr_code_2,
+              title: '导出配置二维码',
+              subtitle: '生成包含宝宝配置信息的二维码',
+              onTap: _showQRCode,
+              iconColor: Colors.blue,
+            ),
+            _buildDivider(),
+            _buildSettingsTile(
+              icon: Icons.cleaning_services_outlined,
+              title: '清除缓存',
+              subtitle: '清除已下载的媒体文件缓存',
+              onTap: _clearCache,
+              iconColor: Colors.orange,
+            ),
+          ]),
           _buildSection('账户管理'),
-          ListTile(
-            leading: const Icon(Icons.waving_hand),
-            title: const Text('挥手告别'),
-            subtitle: const Text('清除当前宝宝的本地配置'),
-            onTap: _logout,
+          _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.waving_hand_outlined,
+              title: '挥手告别',
+              subtitle: '清除当前宝宝的本地配置',
+              onTap: _logout,
+              iconColor: Colors.red,
+              textColor: Colors.red.shade700,
+              showTrailing: false,
+              backgroundColor: Colors.red.shade50,
+            ),
+          ]),
+          const SizedBox(height: 48),
+          Center(
+            child: Text(
+              '成长日记 v1.0.0',
+              style: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 12,
+              ),
+            ),
           ),
         ],
       ),
@@ -387,15 +411,102 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
 
   Widget _buildSection(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
       child: Text(
         title,
         style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.bold,
-          color: Colors.pink.shade700,
+          color: Colors.grey.shade700,
         ),
       ),
     );
+  }
+
+  Widget _buildSettingsGroup(List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildSettingsTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    VoidCallback? onTap,
+    Color iconColor = Colors.grey,
+    Color? textColor,
+    bool showTrailing = true,
+    Color? backgroundColor,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: backgroundColor ?? iconColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        color: textColor ?? Colors.black87,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (showTrailing)
+                Icon(Icons.chevron_right, color: Colors.grey[300], size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Divider(
+        height: 1, thickness: 0.5, indent: 64, color: Colors.grey[100]);
   }
 }
