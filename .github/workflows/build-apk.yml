@@ -19,41 +19,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.38.9'
-        channel: 'stable'
-
-    - name: Cache Flutter dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.pub-cache
-        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-pub-
-
-    - name: Get Flutter dependencies
-      run: flutter pub get
-
-    - name: Run Flutter analyze
-      run: flutter analyze
-
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    - name: Create release keystore for production
-      run: |
-        keytool -genkey -v -keystore android/app/growth-keystore.p12 -storetype PKCS12 -keyalg RSA -keysize 2048 -validity 10000 -alias growth -storepass ${{ secrets.STORE_PASS }} -dname "CN=Growth Diary, OU=Development, O=Hancel, L=Shenzhen, ST=Guangdong, C=CN"
-
     - name: Build APK
-      run: |
-        export ANDROID_KEYSTORE_PASSWORD="${{ secrets.STORE_PASS }}"
-        flutter build apk --release
+      uses: cedvdb/action-flutter-build-android@v1
+      with:
+        keystore-base64: ${{ secrets.ANDROID_RELEASE_KEY }}
+        keystore-password: "${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}"
+        # optionals
+        build-cmd: flutter build apk --release
+        working-directory: ./
 
     - name: Rename APK with version
       run: |
@@ -61,6 +34,7 @@ jobs:
         if [ "$VERSION_NAME" = "nightly" ] || [ -z "$VERSION_NAME" ]; then
           VERSION_NAME="nightly-$(date +%Y%m%d-%H%M%S)"
         fi
+        ls build/app/outputs/flutter-apk/
         mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/growth-diary-${VERSION_NAME}.apk"
 
     - name: Create draft release
