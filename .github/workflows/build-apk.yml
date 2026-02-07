@@ -25,18 +25,47 @@ jobs:
         echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
         echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
 
-    - name: Build APK
-      uses: cedvdb/action-flutter-build-android@v1
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
       with:
-        keystore-base64: ${{ secrets.ANDROID_RELEASE_KEY }}
-        keystore-password: "${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}"
-        # optionals
-        build-cmd: flutter build apk --release
-        working-directory: ./
+        flutter-version: '3.38.9'
+        channel: 'stable'
+
+    - name: Cache Flutter dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.pub-cache
+        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-pub-
+
+    - name: Get Flutter dependencies
+      run: flutter pub get
+
+    - name: Run Flutter analyze
+      run: flutter analyze
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Decode keystore
+      env:
+          ANDROID_RELEASE_KEY: ${{ secrets.ANDROID_RELEASE_KEY }}
+      run: |
+        echo $ANDROID_RELEASE_KEY | base64 --decode > android/app/upload-keystore.p12
+
+    - name: Build APK
+      run: |
+        export ANDROID_KEYSTORE_PASSWORD="${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}"
+        flutter build apk --release
 
     - name: Rename APK with version
       run: |
-        VERSION_NAME="${{ github.event.inputs.version_name }}"
+        VERSION_NAME="${{ steps.version.outputs.version_name }}"
         if [ "$VERSION_NAME" = "nightly" ] || [ -z "$VERSION_NAME" ]; then
           VERSION_NAME="nightly-$(date +%Y%m%d-%H%M%S)"
         fi
@@ -51,8 +80,8 @@ jobs:
         draft: true
         prerelease: false
         generate_release_notes: true
-        tag_name: ${{ steps.version.outputs.version_name }}
-        release_name: "Release ${{ steps.version.outputs.version_name }}"
+        tag_name: v${{ steps.version.outputs.version_name }}
+        release_name: "Release v${{ steps.version.outputs.version_name }}"
 
     - name: Upload APK to release
       uses: actions/upload-release-asset@v1
