@@ -25,8 +25,10 @@ import 'qr_scanner_screen.dart';
 class UploadProgressData {
   final bool hasActiveTasks;
   final String progressText;
+  final bool isRestoring;
 
-  UploadProgressData(this.hasActiveTasks, this.progressText);
+  UploadProgressData(this.hasActiveTasks, this.progressText,
+      {this.isRestoring = false});
 }
 
 class HomeScreen extends StatefulWidget {
@@ -81,12 +83,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
 
-    // 设置上传完成回调，用于刷新首页内容
-    MediaUploadService.setUploadCompletedCallback(_onUploadCompleted);
-
-    // 设置上传进度更新回调，用于实时更新UI
-    MediaUploadService.setUploadProgressCallback(_onUploadProgressUpdated);
-
     // 初始化WebDAV服务，为当前宝宝创建文件夹
     widget.cloudService.initialize(currentConfig).then((_) {
       debugPrint('WebDAV service initialized');
@@ -96,6 +92,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // 初始化 EntryCreationService
     _entryCreationService = EntryCreationService(widget.cloudService);
+
+    // 初始化 MediaUploadService 并设置回调
+    final uploadService = MediaUploadService();
+    uploadService.initialize(
+      widget.cloudService,
+      currentConfig,
+      _entryCreationService,
+    );
+
+    // 设置上传回调
+    uploadService.setEntryCreatedCallback((entry) {
+      print('created a entry: ${entry.id}');
+      _updateUploadProgress();
+      if (mounted) {
+        _loadEntries();
+      }
+    });
+    uploadService.setTaskCompletedCallback((task) {
+      print('Upload completed for ${task.srcPath}');
+      _updateUploadProgress();
+    });
+    uploadService.setTaskFailedCallback((task, error) {
+      print('Upload failed for ${task.srcPath}: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('上传失败: ${task.srcPath.split('/').last} - $error')),
+        );
+      }
+    });
+    uploadService.setAllUploadsCompletedCallback(() => _updateUploadProgress());
+
+    // 加载保存的任务队列
+    MediaUploadService().loadTaskQueue(config: currentConfig).then((_) {
+      // 如果有恢复的任务，显示恢复状态
+      if (MediaUploadService.hasActiveUploads()) {
+        _updateUploadProgress(isRestoring: true);
+        // 延迟一下让用户看到恢复状态，然后开始正常显示
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            _updateUploadProgress(isRestoring: false);
+          }
+        });
+      }
+    });
+
+    // 初始化上传进度
+    _updateUploadProgress(isRestoring: false);
 
     _loadEntries();
   }
@@ -442,28 +486,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       uploadService.startUpload(
         tasks,
         description: description,
-        onEntryCreated: (entry) {
-          print('created a entry: ${entry.id}');
-          _updateUploadProgress();
-          if (mounted) {
-            _loadEntries();
-          }
-        },
-        onTaskCompleted: (task) {
-          print('Upload completed for ${task.srcPath}');
-          _updateUploadProgress();
-        },
-        onTaskFailed: (task, error) {
-          print('Upload failed for ${task.srcPath}: $error');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content:
-                      Text('上传失败: ${task.srcPath.split('/').last} - $error')),
-            );
-          }
-        },
-        onAllUploadsCompleted: () => _updateUploadProgress(), // 所有上传完成时更新进度显示
       );
 
       // 显示提示信息
@@ -604,30 +626,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       uploadService.startUpload(
         tasks,
         description: description,
-        onEntryCreated: (entry) {
-          print('created a entry: ${entry.id}');
-          _updateUploadProgress();
-
-          if (mounted) {
-            _loadEntries();
-          }
-        },
-        onTaskCompleted: (task) {
-          print('Upload completed for ${task.srcPath}');
-          _updateUploadProgress();
-        },
-        onTaskFailed: (task, error) {
-          print('Upload failed for ${task.srcPath}: $error');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content:
-                      Text('上传失败: ${task.srcPath.split('/').last} - $error')),
-            );
-          }
-          _updateUploadProgress();
-        },
-        onAllUploadsCompleted: () => _updateUploadProgress(), // 所有上传完成时更新进度显示
       );
 
       // 显示提示信息
@@ -683,25 +681,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // 上传完成时刷新首页内容
     if (mounted) {
       _loadEntries();
-      _updateUploadProgress(); // 更新进度显示
+      _updateUploadProgress(isRestoring: false); // 更新进度显示
     }
   }
 
   void _onUploadProgressUpdated() {
     // 上传进度更新时，实时更新UI
     if (mounted) {
-      _updateUploadProgress();
+      _updateUploadProgress(isRestoring: false);
     }
   }
 
-  void _updateUploadProgress() {
+  void _updateUploadProgress({bool isRestoring = false}) {
     final hasActiveTasks = MediaUploadService.hasActiveUploads();
     final progressText = hasActiveTasks
         ? '${MediaUploadService.getCompletedTasks()}/${MediaUploadService.getTotalTasks()}'
         : '';
 
-    _uploadProgressNotifier.value =
-        UploadProgressData(hasActiveTasks, progressText);
+    _uploadProgressNotifier.value = UploadProgressData(
+        hasActiveTasks, progressText,
+        isRestoring: isRestoring);
   }
 
   Widget _buildSliverAppBar() {

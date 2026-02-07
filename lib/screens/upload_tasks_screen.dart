@@ -106,31 +106,35 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
   Color _getStatusColor(file_utils.UploadStatus status) {
     switch (status) {
       case file_utils.UploadStatus.pending:
-        return Colors.grey;
+        return Colors.grey.shade400;
       case file_utils.UploadStatus.compressing:
-        return Colors.orange;
+        return Colors.orangeAccent;
       case file_utils.UploadStatus.uploading:
-        return Colors.blue;
+        return Colors.blueAccent;
       case file_utils.UploadStatus.paused:
-        return Colors.orange;
+        return Colors.amber;
       case file_utils.UploadStatus.completed:
         return Colors.green;
       case file_utils.UploadStatus.failed:
-        return Colors.red;
+        return Colors.redAccent;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5), // 浅灰背景，突出卡片
       appBar: AppBar(
-        title: const Text('上传任务'),
+        elevation: 0,
+        title:
+            const Text('上传任务', style: TextStyle(fontWeight: FontWeight.w600)),
+        centerTitle: true,
         backgroundColor: Colors.pink,
         foregroundColor: Colors.white,
         actions: [
           if (_hasActiveTasks())
             IconButton(
-              icon: const Icon(Icons.pause),
+              icon: const Icon(Icons.pause_circle_outline),
               onPressed: () {
                 MediaUploadService.pauseAllUploads();
                 _loadTasks();
@@ -139,7 +143,7 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
             ),
           if (_hasPausedTasks())
             IconButton(
-              icon: const Icon(Icons.play_arrow),
+              icon: const Icon(Icons.play_circle_outline),
               onPressed: () {
                 MediaUploadService.resumeAllUploads();
                 _loadTasks();
@@ -148,7 +152,7 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
             ),
           if (_hasActiveTasks())
             IconButton(
-              icon: const Icon(Icons.stop),
+              icon: const Icon(Icons.stop_circle_outlined),
               onPressed: () {
                 MediaUploadService.stopAllUploads();
                 _loadTasks();
@@ -157,65 +161,135 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
             ),
           if (_tasks.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.clear_all),
+              icon: const Icon(Icons.delete_sweep_outlined),
               onPressed: _clearAllTasks,
               tooltip: '清空所有任务',
             ),
+          const SizedBox(width: 8),
         ],
       ),
       body: _tasks.isEmpty
-          ? const Center(
-              child: Text('暂无上传任务'),
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.cloud_upload_outlined,
+                    size: 80,
+                    color: Colors.grey[300],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '暂无上传任务',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             )
           : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               itemCount: _tasks.length,
               itemBuilder: (context, index) {
                 final task = _tasks[index];
-                return Card(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: ListTile(
-                    leading: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(4),
-                        image: task.thumbPathSmall != null
-                            ? DecorationImage(
-                                image: MemoryImage(task.thumbPathSmall!),
-                                fit: BoxFit.cover,
-                              )
-                            : null,
-                        color: task.thumbPathSmall == null
-                            ? Colors.grey[300]
-                            : null,
+                final fileSizeMB =
+                    File(task.srcPath).lengthSync() / (1024 * 1024);
+                final statusColor = _getStatusColor(task.uploadStatus);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        offset: const Offset(0, 4),
+                        blurRadius: 12,
                       ),
-                      child: task.thumbPathSmall == null
-                          ? Icon(
-                              task.type == file_utils.MediaType.video
-                                  ? Icons.videocam
-                                  : Icons.image,
-                              color: Colors.grey[600],
-                            )
-                          : null,
-                    ),
-                    title: Text(p.basename(task.srcPath)),
-                    subtitle: Text(
-                        '${(File(task.srcPath).lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB'),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(task.uploadStatus),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _getStatusText(task.uploadStatus),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        // 缩略图区域
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.grey[100],
+                            image: task.thumbPathSmall != null
+                                ? DecorationImage(
+                                    image: MemoryImage(task.thumbPathSmall!),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child: task.thumbPathSmall == null
+                              ? Icon(
+                                  task.type == file_utils.MediaType.video
+                                      ? Icons.videocam_outlined
+                                      : Icons.image_outlined,
+                                  color: Colors.grey[400],
+                                  size: 28,
+                                )
+                              : null,
                         ),
-                      ),
+                        const SizedBox(width: 16),
+                        // 信息区域
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p.basename(task.srcPath),
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF333333),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: statusColor,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _getStatusText(task.uploadStatus),
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    '${fileSizeMB.toStringAsFixed(2)} MB',
+                                    style: TextStyle(
+                                      color: Colors.grey[400],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );

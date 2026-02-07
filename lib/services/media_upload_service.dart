@@ -114,6 +114,7 @@ class MediaUploadService {
   String? _currentUploadDescription;
   List<DiaryEntry>? _pendingEntries;
   Map<String, List<String>> _entryMediaMapping = {}; // entryId -> [mediaPaths]
+  List<MediaTask>? _allTasksForRecovery; // 用于恢复时重建entries的所有任务
 
   // 全局回调
   static Function()? _globalUploadCompletedCallback;
@@ -181,12 +182,35 @@ class MediaUploadService {
     return _instance._isRunning || _instance._uploadQueue.isNotEmpty;
   }
 
+  /// 设置上传进度回调
+  void setProgressCallback(Function(MediaTask task, double progress) callback) {
+    _onProgress = callback;
+  }
+
+  /// 设置任务完成回调
+  void setTaskCompletedCallback(Function(MediaTask task) callback) {
+    _onTaskCompleted = callback;
+  }
+
+  /// 设置任务失败回调
+  void setTaskFailedCallback(Function(MediaTask task, String error) callback) {
+    _onTaskFailed = callback;
+  }
+
+  /// 设置条目创建回调
+  void setEntryCreatedCallback(Function(DiaryEntry entry) callback) {
+    _onEntryCreated = callback;
+  }
+
+  /// 设置所有上传完成回调
+  void setAllUploadsCompletedCallback(Function() callback) {
+    _onAllUploadsCompleted = callback;
+  }
+
   /// 显示后台上传通知
   static void showBackgroundNotification(String title, String body) {
     // 这里可以实现通知，但暂时留空或使用flutter_local_notifications
   }
-
-  /// 初始化云存储服务
   void initialize(CloudStorageService cloudStorage, AppConfig config,
       EntryCreationService entryCreationService) {
     _cloudStorage = cloudStorage;
@@ -210,6 +234,8 @@ class MediaUploadService {
         'pendingEntries':
             _pendingEntries?.map((entry) => entry.toJson()).toList(),
         'entryMediaMapping': _entryMediaMapping,
+        'allTasksForRecovery':
+            _allTasksForRecovery?.map((task) => task.toJson()).toList(),
       };
 
       await file.writeAsString(jsonEncode(tasksData));
@@ -219,8 +245,10 @@ class MediaUploadService {
   }
 
   /// 从本地存储加载任务队列
-  Future<void> loadTaskQueue() async {
+  Future<void> loadTaskQueue({required AppConfig config}) async {
     try {
+      this.config = config;
+
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/upload_tasks.json');
 
@@ -231,12 +259,19 @@ class MediaUploadService {
       final content = await file.readAsString();
       final tasksData = jsonDecode(content) as Map<String, dynamic>;
 
-      // 恢复队列
+      // 恢复队列，只加载未完成的任务
       final queueData = tasksData['queue'] as List<dynamic>;
       _uploadQueue.clear();
+      _allTasksForRecovery = []; // 保存所有任务用于恢复
       for (final taskJson in queueData) {
         final task = MediaTask.fromJson(taskJson as Map<String, dynamic>);
-        _uploadQueue.add(task);
+        _allTasksForRecovery!.add(task);
+        // 只恢复未完成的任务，已完成的任务不需要重新上传
+        if (task.uploadStatus != UploadStatus.completed) {
+          _uploadQueue.add(task);
+        } else {
+          print('跳过已完成的任务: ${task.srcPath}');
+        }
       }
 
       // 恢复当前任务
@@ -260,6 +295,7 @@ class MediaUploadService {
             .map((entryJson) =>
                 DiaryEntry.fromJson(entryJson as Map<String, dynamic>))
             .toList();
+        print('成功恢复 _pendingEntries: ${_pendingEntries!.length} 个');
       }
       if (tasksData['entryMediaMapping'] != null) {
         final mappingData =
@@ -268,11 +304,29 @@ class MediaUploadService {
           (key, value) =>
               MapEntry(key, List<String>.from(value as List<dynamic>)),
         ));
+        print('成功恢复 _entryMediaMapping: ${_entryMediaMapping.length} 个');
+      }
+
+      // 恢复所有任务用于可能的重建
+      if (tasksData['allTasksForRecovery'] != null) {
+        final recoveryData = tasksData['allTasksForRecovery'] as List<dynamic>;
+        _allTasksForRecovery = recoveryData
+            .map((taskJson) =>
+                MediaTask.fromJson(taskJson as Map<String, dynamic>))
+            .toList();
       }
 
       // 如果之前正在运行，继续处理
       if (_isRunning && _uploadQueue.isNotEmpty) {
-        _processNextTask();
+        _processNextTask(restore: true);
+      }
+
+      // 如果有待处理的任务但没有 pendingEntries，尝试重建
+      if (_pendingEntries == null &&
+          (_uploadQueue.isNotEmpty || _currentTask != null) &&
+          _currentUploadDescription != null) {
+        print('检测到需要重建 pendingEntries');
+        await _recreatePendingEntries();
       }
     } catch (e) {
       print('加载任务队列失败: $e');
@@ -296,11 +350,6 @@ class MediaUploadService {
   void startUpload(
     List<MediaTask> tasks, {
     required String description,
-    Function(MediaTask task, double progress)? onProgress,
-    Function(MediaTask task)? onTaskCompleted,
-    Function(MediaTask task, String error)? onTaskFailed,
-    Function(DiaryEntry entry)? onEntryCreated,
-    Function()? onAllUploadsCompleted,
   }) {
     if (_cloudStorage == null ||
         _entryCreationService == null ||
@@ -308,11 +357,6 @@ class MediaUploadService {
       throw Exception('MediaUploadService not fully initialized');
     }
 
-    _onProgress = onProgress;
-    _onTaskCompleted = onTaskCompleted;
-    _onTaskFailed = onTaskFailed;
-    _onEntryCreated = onEntryCreated;
-    _onAllUploadsCompleted = onAllUploadsCompleted;
     _currentUploadDescription = description;
 
     // 将 MediaTask 转换为 MediaFile 列表
@@ -495,27 +539,51 @@ class MediaUploadService {
     }
   }
 
-  /// 获取总任务数
-  int get totalTasks => _totalTasks;
-
-  /// 获取完成任务数
-  int get completedTasks => _completedTasks;
-
-  /// 获取保存的任务信息（用于调试或UI显示）
-  Future<Map<String, dynamic>?> getSavedTasksInfo() async {
+  /// 从任务队列重建待处理的 entries
+  Future<void> _recreatePendingEntries() async {
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/upload_tasks.json');
+      print('开始重建 pendingEntries');
 
-      if (!await file.exists()) {
-        return null;
-      }
+      // 使用保存的所有任务来重建
+      final allTasks = _allTasksForRecovery ?? [];
 
-      final content = await file.readAsString();
-      return jsonDecode(content) as Map<String, dynamic>;
+      final mediaFiles = allTasks
+          .map((task) => MediaFile(
+                srcPath: task.srcPath,
+                type: task.type,
+                thumbPathSmall: task.thumbPathSmall,
+                thumbPathMedium: task.thumbPathMedium,
+                uploadPath: task.uploadPath,
+                createdAt: task.createdAt,
+              ))
+          .toList();
+
+      print('重建的 mediaFiles 数量: ${mediaFiles.length}');
+
+      // 重新创建 pendingEntries
+      await _createPendingEntries(mediaFiles, _currentUploadDescription!);
+
+      // 重新应用已上传任务的状态
+      await _restoreUploadedTaskStates(allTasks);
+
+      print('重建完成，pendingEntries 数量: ${_pendingEntries?.length ?? 0}');
     } catch (e) {
-      print('获取保存的任务信息失败: $e');
-      return null;
+      print('重建 pendingEntries 失败: $e');
+    }
+  }
+
+  /// 恢复已上传任务的状态到重建的 entries 中
+  Future<void> _restoreUploadedTaskStates(List<MediaTask> allTasks) async {
+    if (_pendingEntries == null) return;
+
+    // 找到所有已上传完成的任务
+    final uploadedTasks = allTasks.where((task) =>
+        task.uploadStatus == UploadStatus.completed && task.uploadPath != null);
+
+    print('恢复 ${uploadedTasks.length} 个已上传任务的状态');
+
+    for (final task in uploadedTasks) {
+      await _updateEntryWithUploadedMedia(task);
     }
   }
 
@@ -533,7 +601,7 @@ class MediaUploadService {
   }
 
   /// 处理下一个任务
-  Future<void> _processNextTask() async {
+  Future<void> _processNextTask({bool restore = false}) async {
     if (!_isRunning || _uploadQueue.isEmpty) {
       _isRunning = false;
       if (_uploadQueue.isEmpty) {
@@ -545,7 +613,23 @@ class MediaUploadService {
       return;
     }
 
-    _currentTask = _uploadQueue.removeFirst();
+    if (!restore) {
+      _currentTask = _uploadQueue.removeFirst();
+    }
+
+    // 如果任务已经完成，直接更新 entry 并移除任务
+    if (_currentTask!.uploadStatus == UploadStatus.completed &&
+        _currentTask!.uploadPath != null) {
+      print('任务已完成，跳过上传并移除: ${_currentTask!.srcPath}');
+      _completedTasks++;
+      _onTaskCompleted?.call(_currentTask!);
+      await _updateEntryWithUploadedMedia(_currentTask!);
+      _currentTask = null;
+      // 递归处理下一个任务（已完成的任务已被移除）
+      _processNextTask();
+      return;
+    }
+
     _currentTask!.uploadStatus = UploadStatus.uploading;
     // 触发进度回调
     _globalUploadProgressCallback?.call();
@@ -600,24 +684,6 @@ class MediaUploadService {
       final fileName = FileUtils.generateFileName(file, await file.stat());
       final mediaPath = 'media/$fileName';
 
-      // 如果文件已经上传过了（在服务器上存在相同路径文件），则跳过上传步骤，并从Task和entry中移除这个文件，进行下一个任务的上传
-      final existingFile = await _cloudStorage!.fileExists(mediaPath);
-      if (existingFile) {
-        // 从对应的 entry 中移除该媒体文件
-        _removeMediaFromPendingEntries(task);
-
-        // 更新统计数据
-        _completedTasks++; // 增加完成任务数
-
-        // 保存状态
-        _saveTaskQueue();
-
-        // 触发完成回调
-        _onTaskCompleted?.call(task);
-
-        return; // 跳过上传，直接返回
-      }
-
       // 如果是视频，先检查是否需要压缩
       if (task.type == MediaType.video && !task.isCompressed) {
         if (config != null && config!.videoCompressionThreshold > 0) {
@@ -663,12 +729,10 @@ class MediaUploadService {
             _onProgress?.call(task, progress * 0.7);
           },
         );
-        if (!success) {
-          throw Exception('Failed to upload media file');
-        }
-
         // 设置上传路径
-        task.uploadPath = mediaPath;
+        if (success || await _cloudStorage!.fileExists(mediaPath)) {
+          task.uploadPath = mediaPath;
+        }
 
         // 保存状态
         _saveTaskQueue();
@@ -693,9 +757,7 @@ class MediaUploadService {
             _onProgress?.call(task, 0.7 + progress * 0.15);
           },
         );
-        if (!success) {
-          throw Exception('Failed to upload medium thumbnail');
-        } else {
+        if (success || await _cloudStorage!.fileExists(thumbMediumPath)) {
           task.thumbPathMedium = null; // 释放内存
           _saveTaskQueue();
         }
@@ -719,9 +781,7 @@ class MediaUploadService {
             _onProgress?.call(task, 0.85 + progress * 0.15);
           },
         );
-        if (!success) {
-          throw Exception('Failed to upload small thumbnail');
-        } else {
+        if (success || await _cloudStorage!.fileExists(thumbSmallPath)) {
           task.thumbPathSmall = null; // 释放内存
           _saveTaskQueue();
         }
@@ -754,7 +814,15 @@ class MediaUploadService {
 
   /// 更新 DiaryEntry 中的媒体文件地址
   Future<void> _updateEntryWithUploadedMedia(MediaTask task) async {
-    if (_pendingEntries == null || task.uploadPath == null) return;
+    print('更新媒体文件: ${task.srcPath}, uploadPath: ${task.uploadPath}');
+    print('_pendingEntries: ${_pendingEntries?.length ?? 0}');
+    print('_entryMediaMapping: ${_entryMediaMapping.length}');
+
+    if (_pendingEntries == null || task.uploadPath == null) {
+      print(
+          '跳过更新: _pendingEntries=${_pendingEntries == null}, uploadPath=${task.uploadPath == null}');
+      return;
+    }
 
     // 找到对应的 entry
     for (final entry in _pendingEntries!) {
