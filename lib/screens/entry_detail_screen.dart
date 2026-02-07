@@ -6,6 +6,7 @@ import '../services/cloud_storage_service.dart';
 import '../utils/age_calculator.dart';
 import '../components/full_screen_image_view.dart';
 import '../components/full_screen_video_player.dart';
+import 'diary_editor_screen.dart';
 
 class EntryDetailScreen extends StatefulWidget {
   final DiaryEntry entry;
@@ -226,139 +227,31 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
   }
 
   Future<void> _editDescription() async {
-    final TextEditingController titleController =
-        TextEditingController(text: _currentEntry.title);
-    final TextEditingController descriptionController =
-        TextEditingController(text: _currentEntry.description);
-
-    final result = await showDialog<Map<String, String>>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          '编辑内容',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+    // 跳转到 DiaryEditorScreen 进行编辑
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DiaryEditorScreen(
+          config: widget.config,
+          webdavService: widget.cloudService,
+          entryToEdit: _currentEntry,
         ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: InputDecoration(
-                  hintText: '标题（可选）',
-                  hintStyle: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.all(16),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                maxLines: 8,
-                minLines: 3,
-                style: const TextStyle(fontSize: 16, height: 1.5),
-                decoration: InputDecoration(
-                  hintText: '记录下这一刻的想法...',
-                  hintStyle: TextStyle(color: Colors.grey.shade400),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.all(16),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.grey.shade600,
-            ),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, {
-              'title': titleController.text,
-              'description': descriptionController.text,
-            }),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.pink,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-            ),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
 
-    if (result != null) {
-      final newTitle = result['title'] ?? '';
-      final newDescription = result['description'] ?? '';
+    // 如果编辑成功，更新当前条目
+    if (result is DiaryEntry && mounted) {
+      setState(() {
+        _currentEntry = result;
+      });
 
-      if (newTitle != _currentEntry.title ||
-          newDescription != _currentEntry.description) {
-        try {
-          // 创建更新后的entry
-          final updatedEntry = DiaryEntry(
-            id: _currentEntry.id,
-            title: newTitle,
-            description: newDescription,
-            date: _currentEntry.date,
-            imagePaths: _currentEntry.imagePaths,
-            imageThumbnails: _currentEntry.imageThumbnails,
-            videoPaths: _currentEntry.videoPaths,
-            videoThumbnails: _currentEntry.videoThumbnails,
-            ageInMonths: _currentEntry.ageInMonths,
-          );
+      // 通知父组件有更新
+      widget.onEntryUpdated
+          ?.call(EntryDetailResult.updated(result), widget.entry);
 
-          // 保存到WebDAV
-          await widget.cloudService.saveDiaryEntry(updatedEntry);
-
-          if (!mounted) return;
-
-          // 更新当前状态
-          setState(() {
-            _currentEntry = updatedEntry;
-          });
-
-          // 通知首页有更新
-          widget.onEntryUpdated
-              ?.call(EntryDetailResult.updated(updatedEntry), widget.entry);
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('内容修改成功')),
-          );
-        } catch (e) {
-          if (!mounted) return;
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('修改失败: $e')),
-          );
-        }
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('日记修改成功')),
+      );
     }
   }
 

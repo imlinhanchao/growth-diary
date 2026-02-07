@@ -206,7 +206,7 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
+                        color: Colors.black.withValues(alpha: 0.04),
                         offset: const Offset(0, 4),
                         blurRadius: 12,
                       ),

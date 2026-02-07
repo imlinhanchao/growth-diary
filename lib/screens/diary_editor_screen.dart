@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import '../models/app_config.dart';
+import '../models/diary_entry.dart';
 import '../services/entry_creation_service.dart';
 import '../services/cloud_storage_service.dart';
 
 class DiaryEditorScreen extends StatefulWidget {
   final AppConfig config;
   final CloudStorageService webdavService;
+  final DiaryEntry? entryToEdit; // 如果提供，则为编辑模式
 
   const DiaryEditorScreen({
     super.key,
     required this.config,
     required this.webdavService,
+    this.entryToEdit,
   });
 
   @override
@@ -23,10 +26,19 @@ class _DiaryEditorScreenState extends State<DiaryEditorScreen> {
   late final EntryCreationService _entryService;
   DateTime? _selectedDate;
 
+  bool get _isEditing => widget.entryToEdit != null;
+
   @override
   void initState() {
     super.initState();
     _entryService = EntryCreationService(widget.webdavService);
+
+    // 如果是编辑模式，预填充现有数据
+    if (_isEditing) {
+      _titleController.text = widget.entryToEdit!.title;
+      _contentController.text = widget.entryToEdit!.description;
+      _selectedDate = widget.entryToEdit!.date;
+    }
   }
 
   Future<void> _selectDate() async {
@@ -55,12 +67,31 @@ class _DiaryEditorScreenState extends State<DiaryEditorScreen> {
     }
 
     try {
-      var entry = await _entryService.createDiaryEntry(
-          title, content, widget.config,
-          customDate: _selectedDate);
-      await widget.webdavService.saveDiaryEntry(entry);
-      if (!mounted) return;
-      Navigator.of(context).pop(); // 返回上一页
+      if (_isEditing) {
+        // 编辑模式：更新现有条目
+        final updatedEntry = DiaryEntry(
+          id: widget.entryToEdit!.id,
+          title: title,
+          description: content,
+          date: _selectedDate ?? widget.entryToEdit!.date,
+          imagePaths: widget.entryToEdit!.imagePaths,
+          imageThumbnails: widget.entryToEdit!.imageThumbnails,
+          videoPaths: widget.entryToEdit!.videoPaths,
+          videoThumbnails: widget.entryToEdit!.videoThumbnails,
+          ageInMonths: widget.entryToEdit!.ageInMonths,
+        );
+        await widget.webdavService.saveDiaryEntry(updatedEntry);
+        if (!mounted) return;
+        Navigator.of(context).pop(updatedEntry); // 返回更新后的条目
+      } else {
+        // 创建模式：创建新条目
+        var entry = await _entryService.createDiaryEntry(
+            title, content, widget.config,
+            customDate: _selectedDate);
+        await widget.webdavService.saveDiaryEntry(entry);
+        if (!mounted) return;
+        Navigator.of(context).pop(); // 返回上一页
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -85,9 +116,10 @@ class _DiaryEditorScreenState extends State<DiaryEditorScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
-          '写日记',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        title: Text(
+          _isEditing ? '编辑日记' : '写日记',
+          style: const TextStyle(
+              color: Colors.black87, fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.white,
         elevation: 0,

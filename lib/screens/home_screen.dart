@@ -677,21 +677,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _updateUploadProgress();
   }
 
-  void _onUploadCompleted() {
-    // 上传完成时刷新首页内容
-    if (mounted) {
-      _loadEntries();
-      _updateUploadProgress(isRestoring: false); // 更新进度显示
-    }
-  }
-
-  void _onUploadProgressUpdated() {
-    // 上传进度更新时，实时更新UI
-    if (mounted) {
-      _updateUploadProgress(isRestoring: false);
-    }
-  }
-
   void _updateUploadProgress({bool isRestoring = false}) {
     final hasActiveTasks = MediaUploadService.hasActiveUploads();
     final progressText = hasActiveTasks
