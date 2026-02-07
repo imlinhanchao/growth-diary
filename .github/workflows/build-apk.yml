@@ -1,12 +1,7 @@
-name: Build and Release APK
+name: Build APK
 
 on:
   workflow_dispatch:
-    inputs:
-      version_name:
-        description: 'Release version name (e.g., v1.0.0)'
-        required: false
-        default: 'nightly'
 
 permissions:
   contents: write
@@ -18,6 +13,17 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Get version
+      id: version
+      run: |
+        VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //')
+        
+        # 分离版本号和构建号
+        VERSION_NAME=$(echo $VERSION | cut -d'+' -f1)
+        BUILD_NUMBER=$(echo $VERSION | cut -d'+' -f2)
+        echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+        echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
 
     - name: Build APK
       uses: cedvdb/action-flutter-build-android@v1
@@ -34,7 +40,6 @@ jobs:
         if [ "$VERSION_NAME" = "nightly" ] || [ -z "$VERSION_NAME" ]; then
           VERSION_NAME="nightly-$(date +%Y%m%d-%H%M%S)"
         fi
-        ls build/app/outputs/flutter-apk/
         mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/growth-diary-${VERSION_NAME}.apk"
 
     - name: Create draft release
@@ -46,8 +51,8 @@ jobs:
         draft: true
         prerelease: false
         generate_release_notes: true
-        tag_name: ${{ github.event.inputs.version_name }}
-        release_name: "Release ${{ github.event.inputs.version_name }}"
+        tag_name: ${{ steps.version.outputs.version_name }}
+        release_name: "Release ${{ steps.version.outputs.version_name }}"
 
     - name: Upload APK to release
       uses: actions/upload-release-asset@v1
@@ -55,6 +60,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: build/app/outputs/flutter-apk/growth-diary-${{ github.event.inputs.version_name }}.apk
-        asset_name: growth-diary-${{ github.event.inputs.version_name }}.apk
+        asset_path: build/app/outputs/flutter-apk/growth-diary-${{ steps.version.outputs.version_name }}.apk
+        asset_name: growth-diary-${{ steps.version.outputs.version_name }}.apk
         asset_content_type: application/vnd.android.package-archive

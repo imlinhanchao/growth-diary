@@ -1,7 +1,7 @@
 name: growth_diary
 description: 记录宝宝成长的每一个珍贵瞬间
 publish_to: 'none'
-version: 1.0.1+1
+version: 1.0.2+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
