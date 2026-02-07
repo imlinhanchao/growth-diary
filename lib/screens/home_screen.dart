@@ -747,7 +747,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 00.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -861,7 +861,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   gradient: LinearGradient(
                     colors: [
                       Colors.transparent,
-                      Colors.black.withOpacity(0.5),
+                      Colors.black.withValues(alpha: 00.5),
                     ],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -926,7 +926,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
+                                color: Colors.black.withValues(alpha: 00.1),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -969,7 +969,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
+                                color: Colors.black.withValues(alpha: 00.1),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -1012,7 +1012,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
+                                color: Colors.black.withValues(alpha: 00.1),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -1577,7 +1577,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       image: MemoryImage(_coverImageData!),
                       fit: BoxFit.cover,
                       colorFilter: ColorFilter.mode(
-                        Colors.black.withOpacity(0.3),
+                        Colors.black.withValues(alpha: 00.3),
                         BlendMode.darken,
                       ),
                     )
@@ -1591,7 +1591,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   : null,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 00.1),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),
@@ -1603,10 +1603,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 00.2),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.4),
+                      color: Colors.white.withValues(alpha: 00.4),
                       width: 2,
                     ),
                   ),
@@ -1639,13 +1639,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Icon(
                       Icons.favorite,
                       size: 14,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 00.9),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       '记录每一天的惊喜',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.95),
+                        color: Colors.white.withValues(alpha: 00.95),
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                         shadows: const [

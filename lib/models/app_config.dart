@@ -85,8 +85,8 @@ class AppConfig {
     this.webdavMirrors = webdavMirrors ?? [];
 
     // 向后兼容：如果有旧的 webdavUrl 但 mirrors 为空，则迁移
-    if (this.webdavUrl.isNotEmpty && this.webdavMirrors.isEmpty) {
-      this.webdavMirrors.add(this.webdavUrl);
+    if (webdavUrl.isNotEmpty && this.webdavMirrors.isEmpty) {
+      this.webdavMirrors.add(webdavUrl);
     }
   }
 

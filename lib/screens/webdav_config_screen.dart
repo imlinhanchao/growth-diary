@@ -220,7 +220,7 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
+                      color: Colors.black.withValues(alpha: 00.03),
                       blurRadius: 15,
                       offset: const Offset(0, 5),
                     ),
@@ -283,7 +283,7 @@ class _WebDAVConfigScreenState extends State<WebDAVConfigScreen> {
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
+                      color: Colors.black.withValues(alpha: 00.03),
                       blurRadius: 15,
                       offset: const Offset(0, 5),
                     ),
