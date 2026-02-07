@@ -1,10 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
-import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as path;
-import 'package:exif/exif.dart';
-import 'package:crypto/crypto.dart';
-import 'package:flutter_video_info/flutter_video_info.dart';
 
 import '../models/app_config.dart';
 import '../models/diary_entry.dart';
