@@ -6,138 +6,314 @@
     <title>成长日记 - 记录宝宝成长的每一个珍贵瞬间</title>
     <link rel="icon" href="logo.svg" type="image/svg+xml">
     <style>
+        :root {
+            --primary-color: #ff80ab;
+            --primary-dark: #f50057;
+            --secondary-color: #69f0ae;
+            --secondary-dark: #00c853;
+            --text-color: #424242;
+            --text-light: #757575;
+            --bg-gradient: linear-gradient(135deg, #fff0f5 0%, #ffeaf0 100%);
+        }
+
         body {
-            font-family: 'SF Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #fce4ec 0%, #f8bbd9 100%);
-            color: #333;
+            background: var(--bg-gradient);
+            color: var(--text-color);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            overflow-x: hidden;
+            position: relative;
         }
+
+        /* 背景装饰 */
+        .bg-shape {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            z-index: -1;
+            opacity: 0.6;
+            animation: float 20s infinite ease-in-out;
+        }
+        .shape-1 {
+            width: 400px;
+            height: 400px;
+            background: #ffc1e3;
+            top: -100px;
+            left: -100px;
+        }
+        .shape-2 {
+            width: 300px;
+            height: 300px;
+            background: #b9f6ca;
+            bottom: -50px;
+            right: -50px;
+            animation-delay: -5s;
+        }
+        .shape-3 {
+            width: 200px;
+            height: 200px;
+            background: #fff9c4;
+            top: 40%;
+            left: 20%;
+            animation-delay: -10s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(30px, 20px); }
+        }
+
         .container {
-            max-width: 800px;
-            padding: 40px;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            width: 90%;
+            padding: 60px 40px;
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.05);
             text-align: center;
-            margin: 20px;
+            margin: 40px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
         }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         .logo {
-            width: 120px;
-            height: 120px;
-            margin-bottom: 30px;
-        }
-        h1 {
-            color: #e91e63;
-            font-size: 2.5em;
+            width: 140px;
+            height: 140px;
             margin-bottom: 20px;
-            font-weight: 300;
+            filter: drop-shadow(0 10px 20px rgba(255, 128, 171, 0.3));
+            transition: transform 0.3s ease;
         }
+        .logo:hover {
+            transform: scale(1.05) rotate(5deg);
+        }
+
+        h1 {
+            color: var(--text-color);
+            font-size: 3em;
+            margin: 0 0 20px;
+            font-weight: 700;
+            background: linear-gradient(45deg, var(--primary-dark), var(--primary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
         .description {
-            font-size: 1.2em;
-            line-height: 1.6;
-            margin-bottom: 40px;
-            color: #666;
+            font-size: 1.25em;
+            line-height: 1.8;
+            margin: 0 auto 50px;
+            color: var(--text-light);
+            max-width: 600px;
         }
+
         .download-buttons {
             display: flex;
-            gap: 20px;
+            gap: 24px;
             justify-content: center;
             flex-wrap: wrap;
+            margin-bottom: 60px;
         }
+
         .download-btn {
-            display: inline-block;
-            padding: 15px 30px;
-            background: linear-gradient(45deg, #e91e63, #f06292);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px 36px;
+            background: var(--primary-color);
             color: white;
             text-decoration: none;
             border-radius: 50px;
-            font-weight: 500;
+            font-weight: 600;
             font-size: 1.1em;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.3);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 25px rgba(255, 128, 171, 0.4);
+            border: 2px solid transparent;
         }
+
+        .download-btn .icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 10px;
+            fill: currentColor;
+            vertical-align: middle;
+        }
+
         .download-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(233, 30, 99, 0.4);
+            transform: translateY(-4px);
+            box-shadow: 0 15px 35px rgba(255, 128, 171, 0.5);
+            filter: brightness(1.05);
         }
+        
+        .download-btn:active {
+            transform: translateY(-1px);
+        }
+
         .download-btn.android {
-            background: linear-gradient(45deg, #4caf50, #81c784);
-            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+            background: white;
+            color: var(--secondary-dark);
+            border-color: var(--secondary-color);
+            box-shadow: 0 10px 25px rgba(105, 240, 174, 0.3);
         }
+        
         .download-btn.android:hover {
-            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+            background: var(--secondary-color);
+            color: white;
+            box-shadow: 0 15px 35px rgba(105, 240, 174, 0.5);
         }
+
         .features {
-            margin-top: 40px;
             text-align: left;
+            border-top: 1px solid rgba(0,0,0,0.05);
+            padding-top: 50px;
         }
+
         .features h2 {
-            color: #e91e63;
-            font-size: 1.8em;
-            margin-bottom: 20px;
+            color: var(--text-color);
+            font-size: 2em;
+            margin-bottom: 40px;
             text-align: center;
+            font-weight: 600;
         }
+
         .feature-list {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 30px;
         }
+
+        .feature-item {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            text-align: center;
+            border: 1px solid rgba(0,0,0,0.03);
+        }
+
+        .feature-item:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+        }
+
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            display: inline-block;
+            background: #fff0f5;
+            width: 80px;
+            height: 80px;
+            line-height: 80px;
+            border-radius: 50%;
+        }
+
+        .feature-item h3 {
+            color: var(--text-color);
+            margin-bottom: 12px;
+            font-size: 1.3em;
+        }
+        
+        .feature-item p {
+            color: var(--text-light);
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        footer {
+            margin-top: 60px;
+            color: #b0bec5;
+            font-size: 0.9em;
+        }
+
         @media (max-width: 768px) {
+            .bg-shape {
+                display: none;
+            }
+            .container {
+                padding: 40px 24px;
+                width: 88%;
+                margin: 0 auto;
+                border-radius: 0;
+            }
+            .download-buttons {
+                flex-direction: column;
+                gap: 15px;
+            }
             .feature-list {
                 grid-template-columns: 1fr;
             }
-        }
-        .feature-item {
-            background: rgba(233, 30, 99, 0.05);
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 4px solid #e91e63;
-        }
-        .feature-item h3 {
-            color: #e91e63;
-            margin-bottom: 10px;
-        }
-        footer {
-            margin-top: 40px;
-            color: #999;
-            font-size: 0.9em;
+            h1 {
+                font-size: 2.2em;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- SVG Symbols -->
+    <svg style="display: none;">
+        <symbol id="icon-android" viewBox="0 0 24 24">
+            <path fill="currentColor" d="m17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85a.637.637 0 0 0-.83.22l-1.88 3.24a11.46 11.46 0 0 0-8.94 0L5.65 5.67a.643.643 0 0 0-.87-.2c-.28.18-.37.54-.22.83L6.4 9.48A10.78 10.78 0 0 0 1 18h22a10.78 10.78 0 0 0-5.4-8.52M7 15.25a1.25 1.25 0 1 1 0-2.5a1.25 1.25 0 0 1 0 2.5m10 0a1.25 1.25 0 1 1 0-2.5a1.25 1.25 0 0 1 0 2.5"/>
+        </symbol>
+        <symbol id="icon-ios" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.8-3.08.35c-1.09-.46-2.09-.48-3.24 0c-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8c1.18-.24 2.31-.93 3.57-.84c1.51.12 2.65.72 3.4 1.8c-3.12 1.87-2.38 5.98.48 7.13c-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25c.29 2.58-2.34 4.5-3.74 4.25"/>
+        </symbol>
+    </svg>
+
+    <div class="bg-shape shape-1"></div>
+    <div class="bg-shape shape-2"></div>
+    <div class="bg-shape shape-3"></div>
+
     <div class="container">
         <img src="logo.svg" alt="成长日记 Logo" class="logo">
         <h1>成长日记</h1>
         <p class="description">
-            记录宝宝成长的每一个珍贵瞬间，让爱与时光一同定格。支持照片、视频、文字记录，智能备份到云端，随时随地查看宝宝的成长轨迹。
+            记录宝宝成长的每一个珍贵瞬间，让爱与时光一同定格。<br>
+            照片、视频、文字多维记录，智能云端备份，<br>
+            守护每一份纯真的回忆。
         </p>
+        
         <div class="download-buttons">
-            <a href="https://github.com/imlinhanchao/growth-diary/releases/download/v1.0.0/growth-diary-v1.0.0.apk" class="download-btn android">下载 Android APK</a>
-            <a href="#" class="download-btn" id="ios">下载 iOS App</a>
+            <a href="./android/Growth-Diary-1.0.apk" class="download-btn android">
+                <svg class="icon"><use href="#icon-android"/></svg> 下载 Android APK
+            </a>
+            <a href="#" class="download-btn" id="ios">
+                <svg class="icon"><use href="#icon-ios"/></svg> 下载 iOS App
+            </a>
         </div>
+
         <div class="features">
-            <h2>主要功能</h2>
+            <h2>为什么选择成长日记？</h2>
             <div class="feature-list">
                 <div class="feature-item">
-                    <h3>📸 多媒体记录</h3>
-                    <p>支持照片、视频、文字等多种形式记录宝宝的成长瞬间</p>
+                    <div class="feature-icon">📸</div>
+                    <h3>多媒体记录</h3>
+                    <p>支持照片、视频、文字等多种形式，不错过任何一个精彩瞬间。</p>
                 </div>
                 <div class="feature-item">
-                    <h3>☁️ 云端备份</h3>
-                    <p>自动备份到WebDAV云端，确保数据安全永不丢失</p>
+                    <div class="feature-icon">☁️</div>
+                    <h3>云端备份</h3>
+                    <p>WebDAV 自动同步，数据安全存储，更换设备也能轻松找回。</p>
                 </div>
                 <div class="feature-item">
-                    <h3>🔒 隐私保护</h3>
-                    <p>本地存储为主，云端加密，确保宝宝隐私安全</p>
+                    <div class="feature-icon">🔒</div>
+                    <h3>隐私加密</h3>
+                    <p>本地优先存储，云端端对端加密，不仅是记录，更是贴心守护。</p>
                 </div>
             </div>
         </div>
+
         <footer>
             <p>&copy; 2026 成长日记. All rights reserved.</p>
         </footer>
