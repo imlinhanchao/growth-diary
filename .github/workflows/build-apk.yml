@@ -80,7 +80,7 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
         port: ${{ secrets.SSH_PORT || 22 }}
         source: "build/app/outputs/flutter-apk/growth-diary-${{ steps.version.outputs.version_name }}.apk"
-        target: "${{ secrets.SSH_PATH }}/${{ secrets.ReleaseName != '' && format('{0}.apk', secrets.ReleaseName) || format('growth-diary-{0}.apk', steps.version.outputs.version_name) }}"
+        target: "${{ secrets.SSH_PATH }}/android/${{ secrets.ReleaseName != '' && format('{0}.apk', secrets.ReleaseName) || format('growth-diary-{0}.apk', steps.version.outputs.version_name) }}"
 
     - name: Create draft release
       id: create_release
