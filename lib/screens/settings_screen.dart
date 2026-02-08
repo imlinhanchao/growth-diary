@@ -253,7 +253,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ).then((_) {
                   // 刷新配置
-                  setState(() {});
+                  setState(() {
+                    _config = widget.config;
+                  });
                 });
               },
             ),

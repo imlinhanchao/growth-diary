@@ -15,7 +15,10 @@ class QRService {
       'webdavUrl': config.webdavUrl,
       'username': config.username,
       'password': config.password, // 现在包含密码
-      'version': '1.0', // 版本号，用于未来兼容性
+      'babyCoverImagePath': config.babyCoverImagePath,
+      'videoCompressionThreshold': config.videoCompressionThreshold,
+      'webdavMirrors': config.webdavMirrors,
+      'version': '1.1', // 更新版本号
       'timestamp': DateTime.now().toIso8601String(), // 生成时间戳
     };
 
@@ -46,7 +49,7 @@ class QRService {
 
       // 验证版本
       final version = configData['version'] as String?;
-      if (version != '1.0') {
+      if (version != '1.0' && version != '1.1') {
         throw Exception('不支持的二维码版本: $version');
       }
 
@@ -63,6 +66,13 @@ class QRService {
         webdavUrl: configData['webdavUrl'] as String? ?? '',
         username: configData['username'] as String? ?? '',
         password: configData['password'] as String? ?? '',
+        babyCoverImagePath: configData['babyCoverImagePath'] as String?,
+        videoCompressionThreshold:
+            configData['videoCompressionThreshold'] as int? ?? 10,
+        webdavMirrors: (configData['webdavMirrors'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            [],
       );
     } catch (e) {
       print('解码二维码数据失败: $e');
@@ -116,6 +126,7 @@ class QRService {
       '宝宝昵称': config.childName,
       'WebDAV服务器': config.webdavUrl.isNotEmpty ? config.webdavUrl : '未设置',
       '用户名': config.username.isNotEmpty ? config.username : '未设置',
+      'WebDAV镜像数量': config.webdavMirrors.length.toString(),
       '生成时间': '包含在二维码中',
     };
   }
