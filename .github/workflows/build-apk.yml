@@ -71,6 +71,16 @@ jobs:
         fi
         mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/growth-diary-${VERSION_NAME}.apk"
 
+    - name: Upload APK via SCP
+      if: secrets.SSH_HOST != ''
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
+        source: "build/app/outputs/flutter-apk/growth-diary-${{ steps.version.outputs.version_name }}.apk"
+        target: "${{ secrets.SSH_PATH }}/${{ secrets.ReleaseName != '' && format('{0}.apk', secrets.ReleaseName) || format('growth-diary-{0}.apk', steps.version.outputs.version_name) }}"
+
     - name: Create draft release
       id: create_release
       uses: actions/create-release@v1
