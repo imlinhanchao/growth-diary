@@ -72,8 +72,10 @@ jobs:
         mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/growth-diary-${VERSION_NAME}.apk"
 
     - name: Upload APK via SCP
-      if: secrets.SSH_HOST != ''
       uses: appleboy/scp-action@master
+      if: env.SSH_HOST != ''
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
       with:
         host: ${{ secrets.SSH_HOST }}
         username: ${{ secrets.SSH_USER }}

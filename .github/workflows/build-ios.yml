@@ -41,7 +41,9 @@ jobs:
         mv build/ios/ipa/*.ipa "build/growth-diary-${{ steps.version.outputs.version_name }}.ipa"
        
     - name: Upload IPA via SCP
-      if: secrets.SSH_HOST != ''
+      if: env.SSH_HOST != ''
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
       uses: appleboy/scp-action@master
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -52,8 +54,8 @@ jobs:
         target: "${{ secrets.SSH_PATH }}/ios/${{ secrets.ReleaseName != '' && format('{0}.ipa', secrets.ReleaseName) || format('growth-diary-{0}.ipa', steps.version.outputs.version_name) }}"    
 
     - name: Create Release Draft
-      id: create_release
       uses: actions/create-release@v1
+      id: create_release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
