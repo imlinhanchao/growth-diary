@@ -38,6 +38,7 @@ jobs:
     - name: Rename with version
       run: |
         ls build/ios/ipa/
+        cp build/ios/ipa/*.ipa build/${{ secrets.ReleaseName != '' && format('{0}.ipa', secrets.ReleaseName) || format('growth-diary-{0}.ipa', steps.version.outputs.version_name) }}
         mv build/ios/ipa/*.ipa "build/growth-diary-${{ steps.version.outputs.version_name }}.ipa"
        
     - name: Upload IPA via SCP
@@ -50,8 +51,8 @@ jobs:
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
         port: ${{ secrets.SSH_PORT || 22 }}
-        source: "build/growth-diary-${{ steps.version.outputs.version_name }}.ipa"
-        target: "${{ secrets.SSH_PATH }}/ios/${{ secrets.ReleaseName != '' && format('{0}.ipa', secrets.ReleaseName) || format('growth-diary-{0}.ipa', steps.version.outputs.version_name) }}"    
+        source: "build/${{ secrets.ReleaseName != '' && format('{0}.ipa', secrets.ReleaseName) || format('growth-diary-{0}.ipa', steps.version.outputs.version_name) }}"
+        target: "${{ secrets.SSH_PATH }}/ios/"    
 
     - name: Create Release Draft
       uses: actions/create-release@v1

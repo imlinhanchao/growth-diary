@@ -69,6 +69,7 @@ jobs:
         if [ "$VERSION_NAME" = "nightly" ] || [ -z "$VERSION_NAME" ]; then
           VERSION_NAME="nightly-$(date +%Y%m%d-%H%M%S)"
         fi
+        cp build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/${{ secrets.ReleaseName != '' && format('{0}.apk', secrets.ReleaseName) || format('growth-diary-{0}.apk', steps.version.outputs.version_name) }}"
         mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/growth-diary-${VERSION_NAME}.apk"
 
     - name: Upload APK via SCP
@@ -81,8 +82,8 @@ jobs:
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
         port: ${{ secrets.SSH_PORT || 22 }}
-        source: "build/app/outputs/flutter-apk/growth-diary-${{ steps.version.outputs.version_name }}.apk"
-        target: "${{ secrets.SSH_PATH }}/android/${{ secrets.ReleaseName != '' && format('{0}.apk', secrets.ReleaseName) || format('growth-diary-{0}.apk', steps.version.outputs.version_name) }}"
+        source: "build/app/outputs/flutter-apk/${{ secrets.ReleaseName != '' && format('{0}.apk', secrets.ReleaseName) || format('growth-diary-{0}.apk', steps.version.outputs.version_name) }}"
+        target: "${{ secrets.SSH_PATH }}/android/"
 
     - name: Create draft release
       id: create_release
