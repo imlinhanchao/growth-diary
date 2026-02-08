@@ -47,6 +47,7 @@ jobs:
         host: ${{ secrets.SSH_HOST }}
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
+        port: ${{ secrets.SSH_PORT || 22 }}
         source: "build/growth-diary-${{ steps.version.outputs.version_name }}.ipa"
         target: "${{ secrets.SSH_PATH }}/${{ secrets.ReleaseName != '' && format('{0}.ipa', secrets.ReleaseName) || format('growth-diary-{0}.ipa', steps.version.outputs.version_name) }}"    
 
