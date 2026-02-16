@@ -700,7 +700,7 @@ class MediaUploadService {
             final compressedFile = await FileUtils.compressVideo(task.srcPath);
             if (compressedFile != null) {
               file = compressedFile;
-              task.srcPath = compressedFile.path;
+              // task.uploadPath = compressedFile.path;
               task.isCompressed = true;
             }
           }
