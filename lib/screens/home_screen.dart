@@ -1868,6 +1868,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         babyName: importedConfig.babyName,
                         babyBirthDate: importedConfig.babyBirthDate,
                         babyConceptionDate: importedConfig.babyConceptionDate,
+                        babyCoverImagePath: importedConfig.babyCoverImagePath,
+                        videoCompressionThreshold:
+                            importedConfig.videoCompressionThreshold,
+                        webdavMirrors: importedConfig.webdavMirrors,
                       );
 
                       // 添加到配置列表
@@ -1994,6 +1998,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         babyName: result['name'],
         babyBirthDate: result['birthDate'],
         babyConceptionDate: result['conceptionDate'],
+        videoCompressionThreshold: currentConfig.videoCompressionThreshold,
+        webdavMirrors: currentConfig.webdavMirrors,
       );
 
       // 添加到配置列表
