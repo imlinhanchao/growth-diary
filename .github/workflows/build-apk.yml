@@ -41,7 +41,11 @@ jobs:
           ${{ runner.os }}-pub-
 
     - name: Get Flutter dependencies
-      run: flutter pub get
+      run: |
+        flutter pub get
+        cd depends/video_player_android-2.8.17
+        flutter pub get
+        cd ../../
 
     - name: Run Flutter analyze
       run: flutter analyze
