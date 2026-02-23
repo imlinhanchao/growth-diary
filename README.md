@@ -52,18 +52,6 @@ flutter build apk
 flutter build ios
 ```
 
-## CI/CD 自动化构建
-
-项目已配置 GitHub Actions 自动构建 APK：
-
-### 使用方法
-
-0. 设置 GitHub Secrets `STORE_PASS` 密钥密码(用于生产环境签名)，仅首次使用时需要配置。
-1. 进入 GitHub 仓库的 **Actions** 标签页。
-2. 选择 **Build and Release APK** workflow。
-3. 点击 **Run workflow**。
-4. 填写版本信息 **Version name**: 版本号 (如: v1.0.0)
-
 ### 首次使用
 
 1. 启动应用后会显示初始设置界面
