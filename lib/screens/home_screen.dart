@@ -113,6 +113,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print('Upload completed for ${task.srcPath}');
       _updateUploadProgress();
     });
+    uploadService.setProgressCallback((task, progress) {
+      _updateUploadProgress();
+    });
     uploadService.setTaskFailedCallback((task, error) {
       print('Upload failed for ${task.srcPath}: $error');
       if (mounted) {
@@ -500,6 +503,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         tasks,
         description: description,
       );
+      _updateUploadProgress();
 
       // 显示提示信息
       if (mounted) {
@@ -640,6 +644,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         tasks,
         description: description,
       );
+      _updateUploadProgress();
 
       // 显示提示信息
       if (mounted) {
