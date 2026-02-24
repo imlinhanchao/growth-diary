@@ -1,13 +1,15 @@
 import router from '@ohos.router';
 import promptAction from '@ohos.promptAction';
+import common from '@ohos.app.ability.common';
 import { DiaryEntry, AgeCalculator } from '../model/DiaryEntry';
 import { AppConfig } from '../model/AppConfig';
 import { PreferencesService } from '../service/PreferencesService';
 import { WebDAVService } from '../service/WebDAVService';
+import { MediaService } from '../service/MediaService';
 
 /**
  * 日记详情页面
- * 展示单条日记的完整内容，支持编辑和删除
+ * 展示单条日记的完整内容，支持编辑、删除，以及在线浏览已上传的照片
  */
 @Entry
 @Component
@@ -16,13 +18,20 @@ struct DiaryDetail {
   @State config: AppConfig | null = null;
   @State isLoading: boolean = true;
   @State showDeleteConfirm: boolean = false;
+  /** 当前全屏预览的图片本地路径，空字符串表示不显示 */
+  @State previewImagePath: string = '';
+  /** 各缩略图的本地缓存路径，key = WebDAV 相对路径 */
+  @State thumbCache: Record<string, string> = {};
+  @State loadingThumbs: boolean = false;
 
   private entryId: string = '';
   private configId: string = '';
   private webdavService = new WebDAVService();
   private prefsService = PreferencesService.getInstance();
+  private context: common.UIAbilityContext | null = null;
 
   aboutToAppear(): void {
+    this.context = getContext(this) as common.UIAbilityContext;
     const params = router.getParams() as Record<string, string>;
     this.entryId = params?.['entryId'] ?? '';
     this.configId = params?.['configId'] ?? '';
@@ -30,7 +39,6 @@ struct DiaryDetail {
   }
 
   onPageShow(): void {
-    // 从编辑页返回时刷新
     this.loadData();
   }
 
@@ -56,9 +64,7 @@ struct DiaryDetail {
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
-          // 操作菜单
           Row({ space: 8 }) {
-            // 编辑
             Button({ type: ButtonType.Circle }) {
               Text('✏️')
                 .fontSize(16)
@@ -68,7 +74,6 @@ struct DiaryDetail {
             .backgroundColor('#FFF0F5')
             .onClick(() => { this.onEdit(); })
 
-            // 删除
             Button({ type: ButtonType.Circle }) {
               Text('🗑️')
                 .fontSize(16)
@@ -109,7 +114,6 @@ struct DiaryDetail {
                     .backgroundColor('#E91E8C')
                     .borderRadius(12)
                     .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-
                   Text(this.formatDate(this.entry!.date))
                     .fontSize(14)
                     .fontColor('#888888')
@@ -131,12 +135,9 @@ struct DiaryDetail {
                   .backgroundColor('#FFFFFF')
               }
 
-              // 分隔线
-              Divider()
-                .color('#F0C0D0')
-                .width('100%')
+              Divider().color('#F0C0D0').width('100%')
 
-              // 描述内容
+              // 描述
               if (this.entry!.description.length > 0) {
                 Text(this.entry!.description)
                   .fontSize(16)
@@ -157,48 +158,125 @@ struct DiaryDetail {
                 .backgroundColor('#FFFFFF')
               }
 
-              // 媒体信息
-              if (this.entry!.imagePaths.length > 0 || this.entry!.videoPaths.length > 0) {
-                Column({ space: 8 }) {
-                  Divider()
-                    .color('#F0C0D0')
+              // ─── 照片展示 ─────────────────────────────────────────────
+              if (this.entry!.imagePaths.length > 0) {
+                Column({ space: 12 }) {
+                  Divider().color('#F0C0D0')
 
-                  Text('媒体文件')
+                  Row() {
+                    Text('📷 照片')
+                      .fontSize(14)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#E91E8C')
+                    Blank()
+                    if (this.loadingThumbs) {
+                      LoadingProgress()
+                        .width(16)
+                        .height(16)
+                        .color('#E91E8C')
+                    }
+                  }
+                  .width('100%')
+                  .padding({ left: 20, right: 20, top: 12 })
+
+                  // 3 列图片网格
+                  Flex({ wrap: FlexWrap.Wrap }) {
+                    ForEach(this.entry!.imageThumbnails.length > 0
+                      ? this.entry!.imageThumbnails
+                      : this.entry!.imagePaths,
+                    (thumbPath: string, idx: number) => {
+                      Stack() {
+                        if (this.thumbCache[thumbPath]) {
+                          Image(this.thumbCache[thumbPath])
+                            .width('31%')
+                            .aspectRatio(1)
+                            .borderRadius(8)
+                            .objectFit(ImageFit.Cover)
+                            .margin(2)
+                        } else {
+                          Column() {
+                            LoadingProgress()
+                              .width(24)
+                              .height(24)
+                              .color('#E91E8C')
+                          }
+                          .width('31%')
+                          .aspectRatio(1)
+                          .borderRadius(8)
+                          .backgroundColor('#F5F5F5')
+                          .justifyContent(FlexAlign.Center)
+                          .margin(2)
+                        }
+                      }
+                      .onClick(() => {
+                        const fullPath = this.entry!.imagePaths[idx] ?? thumbPath;
+                        this.previewFullImage(fullPath);
+                      })
+                    }, (p: string) => p)
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16, bottom: 12 })
+                }
+                .backgroundColor('#FFFFFF')
+              }
+
+              // ─── 视频展示 ─────────────────────────────────────────────
+              if (this.entry!.videoPaths.length > 0) {
+                Column({ space: 8 }) {
+                  Divider().color('#F0C0D0')
+
+                  Text(`🎬 视频 (${this.entry!.videoPaths.length} 个)`)
                     .fontSize(14)
                     .fontWeight(FontWeight.Bold)
                     .fontColor('#E91E8C')
                     .width('100%')
                     .padding({ left: 20, right: 20, top: 12 })
 
-                  if (this.entry!.imagePaths.length > 0) {
-                    Row({ space: 6 }) {
-                      Text('📷')
-                        .fontSize(16)
-                      Text(`照片 ${this.entry!.imagePaths.length} 张`)
-                        .fontSize(14)
-                        .fontColor('#666666')
+                  ForEach(this.entry!.videoPaths, (videoPath: string, idx: number) => {
+                    Row({ space: 12 }) {
+                      // 视频缩略图
+                      Stack() {
+                        if (this.entry!.videoThumbnails[idx] &&
+                            this.thumbCache[this.entry!.videoThumbnails[idx]]) {
+                          Image(this.thumbCache[this.entry!.videoThumbnails[idx]])
+                            .width(80)
+                            .height(60)
+                            .borderRadius(8)
+                            .objectFit(ImageFit.Cover)
+                        } else {
+                          Column() {
+                            Text('🎬')
+                              .fontSize(24)
+                          }
+                          .width(80)
+                          .height(60)
+                          .borderRadius(8)
+                          .backgroundColor('#F0F0F0')
+                          .justifyContent(FlexAlign.Center)
+                        }
+                        // 播放图标覆盖
+                        Text('▶')
+                          .fontSize(20)
+                          .fontColor('#FFFFFF')
+                          .backgroundColor('#80000000')
+                          .borderRadius(20)
+                          .padding(4)
+                      }
+                      Column({ space: 4 }) {
+                        Text(`视频 ${idx + 1}`)
+                          .fontSize(14)
+                          .fontColor('#333333')
+                        Text('存储于 WebDAV 服务器')
+                          .fontSize(12)
+                          .fontColor('#888888')
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .layoutWeight(1)
                     }
                     .width('100%')
-                    .padding({ left: 20, right: 20 })
-                  }
-
-                  if (this.entry!.videoPaths.length > 0) {
-                    Row({ space: 6 }) {
-                      Text('🎬')
-                        .fontSize(16)
-                      Text(`视频 ${this.entry!.videoPaths.length} 个`)
-                        .fontSize(14)
-                        .fontColor('#666666')
-                    }
-                    .width('100%')
-                    .padding({ left: 20, right: 20 })
-                  }
-
-                  Text('媒体文件存储在 WebDAV 服务器上，请通过文件管理器访问')
-                    .fontSize(12)
-                    .fontColor('#AAAAAA')
-                    .width('100%')
-                    .padding({ left: 20, right: 20, bottom: 12 })
+                    .padding({ left: 20, right: 20, bottom: 8 })
+                    .backgroundColor('#FFFFFF')
+                  }, (p: string) => p)
                 }
                 .backgroundColor('#FFFFFF')
               }
@@ -224,6 +302,33 @@ struct DiaryDetail {
       .width('100%')
       .height('100%')
 
+      // 全屏图片预览
+      if (this.previewImagePath.length > 0) {
+        Column() {
+          Stack() {
+            Image(this.previewImagePath)
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Contain)
+            Button('✕')
+              .width(36)
+              .height(36)
+              .borderRadius(18)
+              .backgroundColor('#80000000')
+              .fontColor('#FFFFFF')
+              .fontSize(20)
+              .position({ right: 16, top: 48 })
+              .onClick(() => { this.previewImagePath = ''; })
+          }
+          .width('100%')
+          .height('100%')
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#000000')
+        .onClick(() => { this.previewImagePath = ''; })
+      }
+
       // 删除确认弹窗
       if (this.showDeleteConfirm) {
         Column() {
@@ -232,7 +337,7 @@ struct DiaryDetail {
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .fontColor('#333333')
-            Text('确定要删除这条记录吗？此操作不可撤销。')
+            Text('确定要删除这条记录吗？此操作不可撤销，相关媒体文件也将从服务器删除。')
               .fontSize(14)
               .fontColor('#666666')
               .textAlign(TextAlign.Center)
@@ -282,13 +387,64 @@ struct DiaryDetail {
       this.config = cfg;
       await this.webdavService.initialize(cfg);
 
-      // 从 WebDAV 加载指定条目
       const entries = await this.webdavService.loadAllEntries();
       this.entry = entries.find(e => e.id === this.entryId) ?? null;
+
+      // 加载缩略图
+      if (this.entry && this.context) {
+        this.loadThumbnails();
+      }
     } catch (e) {
       promptAction.showToast({ message: `加载失败: ${e}` });
     } finally {
       this.isLoading = false;
+    }
+  }
+
+  /** 异步加载所有缩略图到本地缓存 */
+  private async loadThumbnails(): Promise<void> {
+    if (!this.entry || !this.context) return;
+    const mediaService = new MediaService(this.context);
+    this.loadingThumbs = true;
+
+    const allThumbs = [
+      ...this.entry.imageThumbnails,
+      ...this.entry.videoThumbnails.filter(t => t.length > 0),
+    ];
+
+    for (const thumbPath of allThumbs) {
+      if (thumbPath.length === 0 || this.thumbCache[thumbPath]) continue;
+      try {
+        const localPath = await mediaService.getCachedMediaPath(thumbPath, this.webdavService);
+        if (localPath.length > 0) {
+          const updated = { ...this.thumbCache };
+          updated[thumbPath] = localPath;
+          this.thumbCache = updated;
+        }
+      } catch (e) {
+        console.warn('DiaryDetail loadThumbnail error:', thumbPath, e);
+      }
+    }
+    this.loadingThumbs = false;
+  }
+
+  /** 全屏预览完整图片（先从缓存，再从 WebDAV 下载） */
+  private async previewFullImage(imagePath: string): Promise<void> {
+    if (!this.context) return;
+    const mediaService = new MediaService(this.context);
+    try {
+      let localPath = this.thumbCache[imagePath] ?? '';
+      if (!localPath) {
+        promptAction.showToast({ message: '加载图片中...' });
+        localPath = await mediaService.getCachedMediaPath(imagePath, this.webdavService);
+      }
+      if (localPath.length > 0) {
+        this.previewImagePath = localPath;
+      } else {
+        promptAction.showToast({ message: '图片加载失败' });
+      }
+    } catch (e) {
+      promptAction.showToast({ message: `图片加载失败: ${e}` });
     }
   }
 

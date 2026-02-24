@@ -163,6 +163,19 @@ export class WebDAVService {
 
   // ─── 媒体文件 ─────────────────────────────────────────────────────────────
 
+  /**
+   * 上传二进制数据到 WebDAV（媒体文件、缩略图等）
+   * @param relativePath  相对路径，如 'media/xxx.jpg' 或 'thumbnails/xxx.jpg'
+   * @param data          文件二进制数据
+   */
+  async uploadData(relativePath: string, data: ArrayBuffer): Promise<void> {
+    if (!this.isInitialized) throw new Error('WebDAVService not initialized');
+    const fullPath = relativePath.startsWith('growth_diary/')
+      ? relativePath
+      : `${this.getBasePath()}/${relativePath}`;
+    await this.putBinary(fullPath, data);
+  }
+
   /** 从 WebDAV 下载文件 */
   async downloadFile(path: string): Promise<ArrayBuffer | null> {
     if (!this.isInitialized) return null;
@@ -232,6 +245,28 @@ export class WebDAVService {
       });
       if (response.responseCode < 200 || response.responseCode >= 300) {
         throw new Error(`HTTP PUT ${response.responseCode}`);
+      }
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /** HTTP PUT，上传二进制数据 */
+  private async putBinary(path: string, data: ArrayBuffer): Promise<void> {
+    const httpRequest = http.createHttp();
+    try {
+      const response = await httpRequest.request(this.fullUrl(path), {
+        method: http.RequestMethod.PUT,
+        header: {
+          'Authorization': this.authHeader,
+          'Content-Type': 'application/octet-stream',
+        },
+        extraData: data,
+        connectTimeout: 60000,
+        readTimeout: 120000,
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300) {
+        throw new Error(`HTTP PUT binary ${response.responseCode}`);
       }
     } finally {
       httpRequest.destroy();

@@ -4,6 +4,7 @@ import { DiaryEntry, AgeCalculator } from '../model/DiaryEntry';
 import { AppConfig } from '../model/AppConfig';
 import { PreferencesService } from '../service/PreferencesService';
 import { WebDAVService } from '../service/WebDAVService';
+import { UploadQueueService } from '../service/UploadQueueService';
 
 /** 时间轴分组 */
 interface EntryGroup {
@@ -14,211 +15,281 @@ interface EntryGroup {
 
 /**
  * 主页（时间轴）
- * 按月龄分组展示所有日记条目，支持下拉刷新
+ * 按月龄分组展示所有日记条目，支持：
+ * - 下拉刷新
+ * - 多宝宝切换
+ * - 后台上传状态提示
  */
 @Entry
 @Component
 struct Index {
   @State config: AppConfig | null = null;
+  @State allConfigs: AppConfig[] = [];
   @State entries: DiaryEntry[] = [];
   @State isLoading: boolean = true;
   @State errorMessage: string = '';
   @State isRefreshing: boolean = false;
+  @State showBabySwitcher: boolean = false;
+  @State pendingUploadCount: number = 0;
 
   private prefsService = PreferencesService.getInstance();
   private webdavService = new WebDAVService();
+  private uploadQueueService = UploadQueueService.getInstance();
 
   aboutToAppear(): void {
     this.loadData();
   }
 
   onPageShow(): void {
-    // 每次页面显示时刷新（从编辑页返回时）
     this.loadData();
   }
 
   build() {
-    Column() {
-      // 顶部应用栏
-      Row() {
-        if (this.config) {
-          Column({ space: 2 }) {
-            Text('成长日记')
-              .fontSize(20)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#E91E8C')
-            Text(this.config.getAgeLabel())
-              .fontSize(12)
-              .fontColor('#888888')
-          }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-        } else {
-          Text('成长日记')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#E91E8C')
-            .layoutWeight(1)
-        }
-
-        // 设置按钮
-        Button({ type: ButtonType.Circle }) {
-          Text('⚙')
-            .fontSize(20)
-            .fontColor('#E91E8C')
-        }
-        .width(40)
-        .height(40)
-        .backgroundColor('#FFF0F5')
-        .onClick(() => {
-          router.pushUrl({ url: 'pages/Settings' });
-        })
-      }
-      .width('100%')
-      .height(60)
-      .padding({ left: 20, right: 16 })
-      .backgroundColor('#FFFFFF')
-      .shadow({ radius: 4, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
-
-      // 内容区
-      if (this.isLoading) {
-        // 加载中
-        Column() {
-          LoadingProgress()
-            .width(48)
-            .height(48)
-            .color('#E91E8C')
-          Text('加载中...')
-            .fontSize(14)
-            .fontColor('#888888')
-            .margin({ top: 12 })
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-      } else if (this.errorMessage.length > 0) {
-        // 错误状态
-        Column({ space: 16 }) {
-          Text('😢')
-            .fontSize(48)
-          Text(this.errorMessage)
-            .fontSize(14)
-            .fontColor('#888888')
-            .textAlign(TextAlign.Center)
-          Button('重试')
-            .onClick(() => { this.loadData(); })
-            .backgroundColor('#E91E8C')
-            .fontColor('#FFFFFF')
-            .borderRadius(20)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-      } else if (this.entries.length === 0) {
-        // 空状态
-        Column({ space: 16 }) {
-          Text('🌱')
-            .fontSize(64)
-          Text('还没有日记记录')
-            .fontSize(18)
-            .fontColor('#888888')
-          Text('点击右下角的 + 按钮添加第一篇日记吧！')
-            .fontSize(13)
-            .fontColor('#AAAAAA')
-            .textAlign(TextAlign.Center)
-            .padding({ left: 40, right: 40 })
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-      } else {
-        // 时间轴列表
-        Refresh({ refreshing: $$this.isRefreshing }) {
-          List({ space: 0 }) {
-            ForEach(this.getGroupedEntries(), (group: EntryGroup) => {
-              // 分组标题
-              ListItem() {
-                Row() {
-                  // 时间轴圆点
-                  Column() {
-                    Circle({ width: 12, height: 12 })
-                      .fill('#E91E8C')
-                    Column()
-                      .width(2)
-                      .height(32)
-                      .backgroundColor('#F0C0D0')
-                  }
-                  .alignItems(HorizontalAlign.Center)
-                  .margin({ right: 12 })
-
-                  Text(group.label)
-                    .fontSize(16)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor('#E91E8C')
-                    .backgroundColor('#FFF0F5')
-                    .borderRadius(12)
-                    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                }
-                .width('100%')
-                .padding({ left: 16, right: 16, top: 12, bottom: 4 })
+    Stack() {
+      Column() {
+        // 顶部应用栏
+        Row() {
+          // 宝宝名称 + 年龄（点击可切换宝宝）
+          Row({ space: 6 }) {
+            Column({ space: 2 }) {
+              Text('成长日记')
+                .fontSize(20)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#E91E8C')
+              if (this.config) {
+                Text(this.config.getAgeLabel())
+                  .fontSize(12)
+                  .fontColor('#888888')
               }
+            }
+            .alignItems(HorizontalAlign.Start)
 
-              // 分组内的条目
-              ForEach(group.entries, (entry: DiaryEntry) => {
-                ListItem() {
-                  this.buildEntryCard(entry)
+            if (this.allConfigs.length > 1) {
+              Text('▾')
+                .fontSize(14)
+                .fontColor('#E91E8C')
+            }
+          }
+          .layoutWeight(1)
+          .onClick(() => {
+            if (this.allConfigs.length > 1) {
+              this.showBabySwitcher = !this.showBabySwitcher;
+            }
+          })
+
+          // 后台上传指示器
+          if (this.pendingUploadCount > 0) {
+            Row({ space: 4 }) {
+              LoadingProgress()
+                .width(14)
+                .height(14)
+                .color('#E91E8C')
+              Text(`${this.pendingUploadCount} 待上传`)
+                .fontSize(11)
+                .fontColor('#E91E8C')
+            }
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .borderRadius(12)
+            .backgroundColor('#FFF0F5')
+            .margin({ right: 8 })
+            .onClick(() => { this.retryPendingUploads(); })
+          }
+
+          // 设置按钮
+          Button({ type: ButtonType.Circle }) {
+            Text('⚙')
+              .fontSize(20)
+              .fontColor('#E91E8C')
+          }
+          .width(40)
+          .height(40)
+          .backgroundColor('#FFF0F5')
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/Settings' });
+          })
+        }
+        .width('100%')
+        .height(60)
+        .padding({ left: 20, right: 12 })
+        .backgroundColor('#FFFFFF')
+        .shadow({ radius: 4, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
+
+        // 宝宝切换下拉列表
+        if (this.showBabySwitcher && this.allConfigs.length > 1) {
+          Column() {
+            ForEach(this.allConfigs, (cfg: AppConfig) => {
+              Row({ space: 12 }) {
+                Text(cfg.babyName.length > 0 ? cfg.babyName.charAt(0) : '🌸')
+                  .fontSize(18)
+                  .fontColor('#FFFFFF')
+                  .width(36)
+                  .height(36)
+                  .borderRadius(18)
+                  .backgroundColor('#E91E8C')
+                  .textAlign(TextAlign.Center)
+                Column({ space: 2 }) {
+                  Text(cfg.babyName)
+                    .fontSize(15)
+                    .fontColor('#333333')
+                  Text(cfg.getAgeLabel())
+                    .fontSize(12)
+                    .fontColor('#888888')
                 }
-              }, (entry: DiaryEntry) => entry.id)
-            }, (group: EntryGroup) => group.groupKey.toString())
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                if (cfg.id === this.config?.id) {
+                  Text('✓')
+                    .fontSize(18)
+                    .fontColor('#E91E8C')
+                }
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+              .onClick(() => { this.switchBaby(cfg); })
+            }, (cfg: AppConfig) => cfg.id)
           }
           .width('100%')
-          .divider({ strokeWidth: 0 })
-          .padding({ bottom: 100 })
+          .backgroundColor('#FFFFFF')
+          .shadow({ radius: 8, color: '#1A000000', offsetX: 0, offsetY: 4 })
         }
-        .onRefreshing(() => {
-          this.refreshData();
-        })
-        .layoutWeight(1)
-      }
 
-      // 浮动添加按钮
-      Stack() {
-        Blank()
-        Button('+')
-          .width(56)
-          .height(56)
-          .borderRadius(28)
-          .backgroundColor('#E91E8C')
-          .fontColor('#FFFFFF')
-          .fontSize(28)
-          .shadow({ radius: 8, color: '#40E91E8C', offsetX: 0, offsetY: 4 })
-          .position({ right: 20, bottom: 20 })
-          .onClick(() => {
-            if (!this.config) {
-              promptAction.showToast({ message: '请先完成初始设置' });
-              return;
+        // 内容区
+        if (this.isLoading) {
+          Column() {
+            LoadingProgress()
+              .width(48)
+              .height(48)
+              .color('#E91E8C')
+            Text('加载中...')
+              .fontSize(14)
+              .fontColor('#888888')
+              .margin({ top: 12 })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+        } else if (this.errorMessage.length > 0) {
+          Column({ space: 16 }) {
+            Text('😢')
+              .fontSize(48)
+            Text(this.errorMessage)
+              .fontSize(14)
+              .fontColor('#888888')
+              .textAlign(TextAlign.Center)
+            Button('重试')
+              .onClick(() => { this.loadData(); })
+              .backgroundColor('#E91E8C')
+              .fontColor('#FFFFFF')
+              .borderRadius(20)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+        } else if (this.entries.length === 0) {
+          Column({ space: 16 }) {
+            Text('🌱')
+              .fontSize(64)
+            Text('还没有日记记录')
+              .fontSize(18)
+              .fontColor('#888888')
+            Text('点击右下角的 + 按钮添加第一篇日记吧！')
+              .fontSize(13)
+              .fontColor('#AAAAAA')
+              .textAlign(TextAlign.Center)
+              .padding({ left: 40, right: 40 })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+        } else {
+          Refresh({ refreshing: $$this.isRefreshing }) {
+            List({ space: 0 }) {
+              ForEach(this.getGroupedEntries(), (group: EntryGroup) => {
+                ListItem() {
+                  Row() {
+                    Column() {
+                      Circle({ width: 12, height: 12 })
+                        .fill('#E91E8C')
+                      Column()
+                        .width(2)
+                        .height(32)
+                        .backgroundColor('#F0C0D0')
+                    }
+                    .alignItems(HorizontalAlign.Center)
+                    .margin({ right: 12 })
+
+                    Text(group.label)
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#E91E8C')
+                      .backgroundColor('#FFF0F5')
+                      .borderRadius(12)
+                      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16, top: 12, bottom: 4 })
+                }
+
+                ForEach(group.entries, (entry: DiaryEntry) => {
+                  ListItem() {
+                    this.buildEntryCard(entry)
+                  }
+                }, (entry: DiaryEntry) => entry.id)
+              }, (group: EntryGroup) => group.groupKey.toString())
             }
-            router.pushUrl({
-              url: 'pages/DiaryEditor',
-              params: { configId: this.config.id }
-            });
+            .width('100%')
+            .divider({ strokeWidth: 0 })
+            .padding({ bottom: 100 })
+          }
+          .onRefreshing(() => {
+            this.refreshData();
           })
+          .layoutWeight(1)
+        }
+
+        // 浮动添加按钮
+        Stack() {
+          Blank()
+          Button('+')
+            .width(56)
+            .height(56)
+            .borderRadius(28)
+            .backgroundColor('#E91E8C')
+            .fontColor('#FFFFFF')
+            .fontSize(28)
+            .shadow({ radius: 8, color: '#40E91E8C', offsetX: 0, offsetY: 4 })
+            .position({ right: 20, bottom: 20 })
+            .onClick(() => {
+              if (!this.config) {
+                promptAction.showToast({ message: '请先完成初始设置' });
+                return;
+              }
+              router.pushUrl({
+                url: 'pages/DiaryEditor',
+                params: { configId: this.config.id }
+              });
+            })
+        }
+        .width('100%')
+        .height(0)
       }
       .width('100%')
-      .height(0)
+      .height('100%')
+      .backgroundColor('#FFF5F7')
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFF5F7')
+    .onClick(() => {
+      if (this.showBabySwitcher) this.showBabySwitcher = false;
+    })
   }
 
   @Builder
   buildEntryCard(entry: DiaryEntry) {
     Row() {
-      // 时间轴线
       Column() {
         Column()
           .width(2)
@@ -234,14 +305,11 @@ struct Index {
       .alignItems(HorizontalAlign.Center)
       .margin({ left: 21, right: 12 })
 
-      // 卡片内容
       Column({ space: 8 }) {
-        // 日期
         Text(this.formatDate(entry.date))
           .fontSize(12)
           .fontColor('#AAAAAA')
 
-        // 标题
         if (entry.title.length > 0) {
           Text(entry.title)
             .fontSize(16)
@@ -251,7 +319,6 @@ struct Index {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
 
-        // 描述
         if (entry.description.length > 0) {
           Text(entry.description)
             .fontSize(14)
@@ -260,7 +327,6 @@ struct Index {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
 
-        // 媒体数量提示
         if (entry.imagePaths.length > 0 || entry.videoPaths.length > 0) {
           Row({ space: 8 }) {
             if (entry.imagePaths.length > 0) {
@@ -302,7 +368,6 @@ struct Index {
     .padding({ left: 0, right: 16 })
   }
 
-  /** 按月龄分组条目 */
   private getGroupedEntries(): EntryGroup[] {
     const groups: Map<number, EntryGroup> = new Map();
 
@@ -320,7 +385,6 @@ struct Index {
       groups.get(key)!.entries.push(entry);
     }
 
-    // 按分组键倒序排列（最新的在前）
     return Array.from(groups.values()).sort((a, b) => b.groupKey - a.groupKey);
   }
 
@@ -332,22 +396,24 @@ struct Index {
   private async loadData(): Promise<void> {
     this.isLoading = true;
     this.errorMessage = '';
+    this.showBabySwitcher = false;
 
     try {
-      // 加载配置
+      const configs = await this.prefsService.loadAllConfigs();
+      this.allConfigs = Object.values(configs);
+
       const cfg = await this.prefsService.loadConfig();
       if (!cfg || !cfg.isConfigured) {
-        // 跳转到初始设置页
         router.replaceUrl({ url: 'pages/Setup' });
         return;
       }
       this.config = cfg;
 
-      // 初始化 WebDAV
       await this.webdavService.initialize(cfg);
-
-      // 加载条目
       this.entries = await this.webdavService.loadAllEntries();
+
+      // 后台上传任务计数
+      this.pendingUploadCount = await this.uploadQueueService.getActiveCount(cfg.id);
     } catch (e) {
       this.errorMessage = `加载失败: ${e}`;
     } finally {
@@ -359,11 +425,38 @@ struct Index {
     try {
       if (this.config) {
         this.entries = await this.webdavService.loadAllEntries();
+        this.pendingUploadCount = await this.uploadQueueService.getActiveCount(this.config.id);
       }
     } catch (e) {
       promptAction.showToast({ message: `刷新失败: ${e}` });
     } finally {
       this.isRefreshing = false;
     }
+  }
+
+  /** 切换当前宝宝 */
+  private async switchBaby(cfg: AppConfig): Promise<void> {
+    this.showBabySwitcher = false;
+    await this.prefsService.setCurrentConfigId(cfg.id);
+    this.config = cfg;
+    this.isLoading = true;
+    try {
+      await this.webdavService.initialize(cfg);
+      this.entries = await this.webdavService.loadAllEntries();
+      this.pendingUploadCount = await this.uploadQueueService.getActiveCount(cfg.id);
+    } catch (e) {
+      this.errorMessage = `切换失败: ${e}`;
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  /** 重试待上传任务（触发 upload queue 中的 pending 任务） */
+  private async retryPendingUploads(): Promise<void> {
+    if (!this.config) return;
+    promptAction.showToast({ message: '正在重试后台上传任务...' });
+    // 清理已完成任务并刷新计数
+    await this.uploadQueueService.clearDoneTasks(this.config.id);
+    this.pendingUploadCount = await this.uploadQueueService.getActiveCount(this.config.id);
   }
 }

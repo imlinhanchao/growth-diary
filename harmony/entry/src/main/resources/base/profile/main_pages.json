@@ -4,6 +4,7 @@
     "pages/Setup",
     "pages/DiaryEditor",
     "pages/DiaryDetail",
-    "pages/Settings"
+    "pages/Settings",
+    "pages/QRShare"
   ]
 }

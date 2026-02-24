@@ -53,6 +53,10 @@
       {
         "name": "ohos.permission.MICROPHONE",
         "reason": "$string:permission_microphone_reason"
+      },
+      {
+        "name": "ohos.permission.READ_PASTEBOARD",
+        "reason": "$string:permission_pasteboard_reason"
       }
     ]
   }

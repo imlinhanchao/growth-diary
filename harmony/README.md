@@ -10,12 +10,18 @@
 
 ## 功能特点
 
-与 Flutter 版保持一致的核心功能：
+与 Flutter 版保持一致的完整功能：
 
 - 📝 **文字记录**：添加标题和描述，记录宝宝的趣事和成长里程碑
 - 📅 **时间轴展示**：按月龄/年龄分组展示所有记录，形成时间轴视图
 - ✏️ **记录编辑**：支持编辑已有记录的标题、描述和日期
-- 🗑️ **删除记录**：长按或点击删除按钮删除记录（同步删除 WebDAV 媒体文件）
+- 🗑️ **删除记录**：点击删除按钮删除记录（同步删除 WebDAV 媒体文件）
+- 📷 **照片上传**：从相册选取照片，自动生成缩略图并上传至 WebDAV
+- 🎬 **视频上传**：从相册选取视频并上传至 WebDAV
+- 🖼️ **媒体浏览**：详情页展示照片网格，支持全屏预览；视频显示缩略图
+- 👶 **多宝宝管理**：支持添加多个宝宝配置，快速切换，独立数据存储
+- 📱 **配置分享**：生成含 XOR 加密的配置数据，与 Flutter 版 QR 码格式完全兼容；支持复制/粘贴方式导入
+- ⬆️ **后台上传队列**：上传失败时自动加入队列，重新联网后可重试；主界面显示待上传数量
 - ☁️ **WebDAV 存储**：与 Flutter 版共用同一套 WebDAV 数据存储，数据互通
 - 🔄 **跨设备同步**：配置和日记条目存储在 WebDAV 服务器，多设备可共享
 - 🎨 **粉色系界面**：与 Flutter 版风格保持一致的现代化简洁设计
@@ -30,6 +36,10 @@
 | **ArkUI** | HarmonyOS 声明式 UI 框架 |
 | **@ohos.net.http** | 网络请求（用于 WebDAV 通信） |
 | **@ohos.data.preferences** | 本地偏好设置存储 |
+| **@ohos.file.picker** | 相册选取（PhotoViewPicker） |
+| **@ohos.file.fs** | 本地文件系统（缓存媒体文件） |
+| **@ohos.multimedia.image** | 图片解码/缩放/编码（缩略图生成） |
+| **@ohos.pasteboard** | 剪贴板（配置数据复制/粘贴） |
 | **HarmonyOS SDK 5.0 (API 12)** | 目标平台 SDK |
 
 ---
@@ -52,13 +62,17 @@ harmony/
 │   │   │   │   └── AppConfig.ets      # 应用配置模型
 │   │   │   ├── service/
 │   │   │   │   ├── PreferencesService.ets  # 本地存储服务
-│   │   │   │   └── WebDAVService.ets       # WebDAV 网络服务
+│   │   │   │   ├── WebDAVService.ets       # WebDAV 网络服务
+│   │   │   │   ├── MediaService.ets        # 媒体选取/上传/缓存服务
+│   │   │   │   ├── QRService.ets           # QR 数据加密/解密服务
+│   │   │   │   └── UploadQueueService.ets  # 后台上传队列服务
 │   │   │   └── pages/
-│   │   │       ├── Index.ets          # 主页（时间轴）
+│   │   │       ├── Index.ets          # 主页（时间轴 + 多宝宝切换）
 │   │   │       ├── Setup.ets          # 初始设置页
-│   │   │       ├── DiaryEditor.ets    # 日记编辑页
-│   │   │       ├── DiaryDetail.ets    # 日记详情页
-│   │   │       └── Settings.ets       # 设置页
+│   │   │       ├── DiaryEditor.ets    # 日记编辑页（含照片/视频上传）
+│   │   │       ├── DiaryDetail.ets    # 日记详情页（照片网格 + 全屏预览）
+│   │   │       ├── Settings.ets       # 设置页（多宝宝管理 + QR 分享入口）
+│   │   │       └── QRShare.ets        # 配置分享 / 导入页
 │   │   ├── resources/
 │   │   │   └── base/
 │   │   │       ├── element/           # 字符串、颜色资源
@@ -140,7 +154,7 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=release
 
 ---
 
-## 与 Flutter 版的功能差异
+## 与 Flutter 版的功能对比
 
 | 功能 | Flutter 版 | HarmonyOS 版 |
 |------|-----------|-------------|
@@ -149,12 +163,15 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=release
 | 编辑/删除记录 | ✅ | ✅ |
 | WebDAV 同步 | ✅ | ✅ |
 | 设置管理 | ✅ | ✅ |
-| 照片上传 | ✅ | 🚧 计划中 |
-| 视频上传 | ✅ | 🚧 计划中 |
-| 视频播放 | ✅ | 🚧 计划中 |
-| 多宝宝管理 | ✅ | 🚧 计划中 |
-| QR 码分享 | ✅ | 🚧 计划中 |
-| 后台上传任务 | ✅ | 🚧 计划中 |
+| 照片上传 | ✅ | ✅ |
+| 视频上传 | ✅ | ✅ |
+| 照片浏览/全屏预览 | ✅ | ✅ |
+| 视频播放 | ✅ | 🚧 视频列表已支持，内置播放器待集成 |
+| 多宝宝管理 | ✅ | ✅ |
+| QR 码分享 | ✅ | ✅ (复制/粘贴，数据格式兼容 Flutter) |
+| 后台上传任务队列 | ✅ | ✅ |
+| 视频缩略图自动生成 | ✅ | 🚧 依赖 Flutter 端生成，HarmonyOS 端展示 |
 
-> HarmonyOS 版当前实现了核心的文字日记功能和 WebDAV 数据同步。
-> 媒体文件（照片/视频）可通过 Flutter 版录入，HarmonyOS 版可查看媒体数量信息。
+> **视频播放**：当前版本已显示视频列表及缩略图（Flutter 端生成），内置视频播放器（`XComponent + AVPlayer`）将在后续迭代中集成。
+>
+> **QR 码**：HarmonyOS 端使用复制/粘贴方式传递配置，数据格式与 Flutter 版 QR 码完全一致（相同 XOR 加密 + Base64），两端可互相导入。
