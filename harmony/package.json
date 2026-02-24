@@ -1,0 +1,12 @@
+{
+  "name": "growth-diary-harmony",
+  "version": "1.0.0",
+  "description": "成长日记 HarmonyOS 原生应用",
+  "main": "",
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@ohos/hvigor": "4.2.0",
+    "@ohos/hvigor-ohos-plugin": "4.2.0"
+  }
+}
