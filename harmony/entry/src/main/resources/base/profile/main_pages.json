@@ -1,0 +1,9 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/Setup",
+    "pages/DiaryEditor",
+    "pages/DiaryDetail",
+    "pages/Settings"
+  ]
+}

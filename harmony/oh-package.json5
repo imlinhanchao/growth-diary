@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "description": "HarmonyOS 成长日记应用",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hvigor-ohos-plugin": "4.2.0"
+  }
+}
