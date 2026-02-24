@@ -9,7 +9,10 @@ import { MediaService } from '../service/MediaService';
 
 /**
  * 日记详情页面
- * 展示单条日记的完整内容，支持编辑、删除，以及在线浏览已上传的照片
+ * 风格与 Flutter EntryDetailScreen 保持一致：
+ * - 白色 AppBar，SymbolGlyph 图标（返回/日历/编辑/删除）
+ * - 大号日期（56px 细体）+ 年月/星期 + 年龄胶囊
+ * - 标题（22px bold）→ 描述（16px 行高1.8）→ 照片节（图片网格）→ 视频节
  */
 @Entry
 @Component
@@ -18,9 +21,7 @@ struct DiaryDetail {
   @State config: AppConfig | null = null;
   @State isLoading: boolean = true;
   @State showDeleteConfirm: boolean = false;
-  /** 当前全屏预览的图片本地路径，空字符串表示不显示 */
   @State previewImagePath: string = '';
-  /** 各缩略图的本地缓存路径，key = WebDAV 相对路径 */
   @State thumbCache: Record<string, string> = {};
   @State loadingThumbs: boolean = false;
 
@@ -45,58 +46,67 @@ struct DiaryDetail {
   build() {
     Stack() {
       Column() {
-        // 顶部应用栏
+        // ─── 白色 AppBar ─────────────────────────────────────────────
         Row() {
           Button({ type: ButtonType.Circle }) {
-            Text('←')
+            SymbolGlyph($r('sys.symbol.arrow_left'))
               .fontSize(20)
-              .fontColor('#E91E8C')
+              .fontColor(['#212121'])
           }
           .width(40)
           .height(40)
-          .backgroundColor('#FFF0F5')
+          .backgroundColor(Color.Transparent)
           .onClick(() => { router.back(); })
 
-          Text('记录详情')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#333333')
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
+          Blank().layoutWeight(1)
 
-          Row({ space: 8 }) {
-            Button({ type: ButtonType.Circle }) {
-              Text('✏️')
-                .fontSize(16)
-            }
-            .width(36)
-            .height(36)
-            .backgroundColor('#FFF0F5')
-            .onClick(() => { this.onEdit(); })
-
-            Button({ type: ButtonType.Circle }) {
-              Text('🗑️')
-                .fontSize(16)
-            }
-            .width(36)
-            .height(36)
-            .backgroundColor('#FFF0F5')
-            .onClick(() => { this.showDeleteConfirm = true; })
+          // 修改日期
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.calendar'))
+              .fontSize(20)
+              .fontColor(['#212121'])
           }
+          .width(40)
+          .height(40)
+          .backgroundColor(Color.Transparent)
+
+          // 编辑内容
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.square_and_pencil'))
+              .fontSize(20)
+              .fontColor(['#212121'])
+          }
+          .width(40)
+          .height(40)
+          .backgroundColor(Color.Transparent)
+          .onClick(() => { this.onEdit(); })
+
+          // 删除
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.trash'))
+              .fontSize(20)
+              .fontColor(['#F44336'])
+          }
+          .width(40)
+          .height(40)
+          .backgroundColor(Color.Transparent)
+          .onClick(() => { this.showDeleteConfirm = true; })
+
+          Blank().width(8)
         }
         .width('100%')
-        .height(60)
-        .padding({ left: 12, right: 12 })
+        .height(56)
+        .padding({ left: 4, right: 4 })
         .backgroundColor('#FFFFFF')
-        .shadow({ radius: 4, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
+        .borderWidth({ bottom: 0 })
 
-        // 内容区
+        // ─── 内容区 ───────────────────────────────────────────────────
         if (this.isLoading) {
           Column() {
             LoadingProgress()
               .width(48)
               .height(48)
-              .color('#E91E8C')
+              .color('#E91E63')
           }
           .width('100%')
           .layoutWeight(1)
@@ -105,180 +115,95 @@ struct DiaryDetail {
         } else if (this.entry) {
           Scroll() {
             Column({ space: 0 }) {
-              // 年龄标签和日期
-              Column({ space: 8 }) {
-                Row({ space: 8 }) {
-                  Text(this.entry!.getAgeLabel(this.config?.babyBirthDate))
-                    .fontSize(14)
-                    .fontColor('#FFFFFF')
-                    .backgroundColor('#E91E8C')
-                    .borderRadius(12)
-                    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                  Text(this.formatDate(this.entry!.date))
-                    .fontSize(14)
-                    .fontColor('#888888')
+              // ─── 日期 + 年龄标头（Flutter 大数字风格）───────────────
+              Row() {
+                // 大号日期数字
+                Column({ space: 0 }) {
+                  Text(`${new Date(this.entry!.date).getDate()}`)
+                    .fontSize(56)
+                    .fontWeight(FontWeight.W300)
+                    .fontColor('#212121')
+                    .lineHeight(56)
+                    .letterSpacing(-2)
                 }
-                .width('100%')
+                Blank().width(12)
+                // 年月 + 星期
+                Column({ space: 2 }) {
+                  Text(`${new Date(this.entry!.date).getFullYear()}年${new Date(this.entry!.date).getMonth() + 1}月`)
+                    .fontSize(14)
+                    .fontWeight(FontWeight.W600)
+                    .fontColor('#757575')
+                  Text(this.getWeekday(new Date(this.entry!.date)))
+                    .fontSize(12)
+                    .fontWeight(FontWeight.W500)
+                    .fontColor('#BDBDBD')
+                }
+                .alignItems(HorizontalAlign.Start)
+                .justifyContent(FlexAlign.End)
+                .margin({ bottom: 8 })
+
+                Blank().layoutWeight(1)
+
+                // 年龄胶囊
+                Text(this.entry!.getAgeLabel(this.config?.babyBirthDate))
+                  .fontSize(13)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#EC407A')
+                  .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                  .backgroundColor('#FCE4EC')
+                  .borderRadius(20)
+                  .margin({ bottom: 8 })
               }
               .width('100%')
-              .padding({ left: 20, right: 20, top: 20, bottom: 12 })
-              .backgroundColor('#FFFFFF')
+              .padding({ left: 24, right: 24, top: 12, bottom: 0 })
+              .alignItems(VerticalAlign.Bottom)
+
+              Blank().height(32)
 
               // 标题
               if (this.entry!.title.length > 0) {
                 Text(this.entry!.title)
                   .fontSize(22)
                   .fontWeight(FontWeight.Bold)
-                  .fontColor('#333333')
+                  .fontColor('#212121')
+                  .lineHeight(29)
+                  .letterSpacing(0.5)
                   .width('100%')
-                  .padding({ left: 20, right: 20, bottom: 12 })
-                  .backgroundColor('#FFFFFF')
+                  .padding({ left: 24, right: 24 })
+                Blank().height(16)
               }
-
-              Divider().color('#F0C0D0').width('100%')
 
               // 描述
               if (this.entry!.description.length > 0) {
                 Text(this.entry!.description)
                   .fontSize(16)
-                  .fontColor('#444444')
-                  .lineHeight(26)
+                  .fontColor('#212121')
+                  .lineHeight(29)
                   .width('100%')
-                  .padding({ left: 20, right: 20, top: 16, bottom: 16 })
-                  .backgroundColor('#FFFFFF')
-              } else {
-                Column() {
-                  Text('暂无描述内容')
-                    .fontSize(14)
-                    .fontColor('#CCCCCC')
-                    .fontStyle(FontStyle.Italic)
-                }
-                .width('100%')
-                .padding({ left: 20, right: 20, top: 16, bottom: 16 })
-                .backgroundColor('#FFFFFF')
+                  .padding({ left: 24, right: 24 })
+                Blank().height(32)
+              } else if (this.entry!.title.length === 0) {
+                Text('没有文字记录')
+                  .fontSize(15)
+                  .fontColor('#BDBDBD')
+                  .padding({ left: 24, right: 24 })
+                Blank().height(32)
               }
 
-              // ─── 照片展示 ─────────────────────────────────────────────
+              // ─── 照片区 ──────────────────────────────────────────
               if (this.entry!.imagePaths.length > 0) {
-                Column({ space: 12 }) {
-                  Divider().color('#F0C0D0')
-
-                  Row() {
-                    Text('📷 照片')
-                      .fontSize(14)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor('#E91E8C')
-                    Blank()
-                    if (this.loadingThumbs) {
-                      LoadingProgress()
-                        .width(16)
-                        .height(16)
-                        .color('#E91E8C')
-                    }
-                  }
-                  .width('100%')
-                  .padding({ left: 20, right: 20, top: 12 })
-
-                  // 3 列图片网格
-                  Flex({ wrap: FlexWrap.Wrap }) {
-                    ForEach(this.entry!.imageThumbnails.length > 0
-                      ? this.entry!.imageThumbnails
-                      : this.entry!.imagePaths,
-                    (thumbPath: string, idx: number) => {
-                      Stack() {
-                        if (this.thumbCache[thumbPath]) {
-                          Image(this.thumbCache[thumbPath])
-                            .width('31%')
-                            .aspectRatio(1)
-                            .borderRadius(8)
-                            .objectFit(ImageFit.Cover)
-                            .margin(2)
-                        } else {
-                          Column() {
-                            LoadingProgress()
-                              .width(24)
-                              .height(24)
-                              .color('#E91E8C')
-                          }
-                          .width('31%')
-                          .aspectRatio(1)
-                          .borderRadius(8)
-                          .backgroundColor('#F5F5F5')
-                          .justifyContent(FlexAlign.Center)
-                          .margin(2)
-                        }
-                      }
-                      .onClick(() => {
-                        const fullPath = this.entry!.imagePaths[idx] ?? thumbPath;
-                        this.previewFullImage(fullPath);
-                      })
-                    }, (p: string) => p)
-                  }
-                  .width('100%')
-                  .padding({ left: 16, right: 16, bottom: 12 })
-                }
-                .backgroundColor('#FFFFFF')
+                this.buildSectionHeader('照片', this.entry!.imagePaths.length)
+                Blank().height(16)
+                this.buildImageGrid()
+                Blank().height(32)
               }
 
-              // ─── 视频展示 ─────────────────────────────────────────────
+              // ─── 视频区 ──────────────────────────────────────────
               if (this.entry!.videoPaths.length > 0) {
-                Column({ space: 8 }) {
-                  Divider().color('#F0C0D0')
-
-                  Text(`🎬 视频 (${this.entry!.videoPaths.length} 个)`)
-                    .fontSize(14)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor('#E91E8C')
-                    .width('100%')
-                    .padding({ left: 20, right: 20, top: 12 })
-
-                  ForEach(this.entry!.videoPaths, (videoPath: string, idx: number) => {
-                    Row({ space: 12 }) {
-                      // 视频缩略图
-                      Stack() {
-                        if (this.entry!.videoThumbnails[idx] &&
-                            this.thumbCache[this.entry!.videoThumbnails[idx]]) {
-                          Image(this.thumbCache[this.entry!.videoThumbnails[idx]])
-                            .width(80)
-                            .height(60)
-                            .borderRadius(8)
-                            .objectFit(ImageFit.Cover)
-                        } else {
-                          Column() {
-                            Text('🎬')
-                              .fontSize(24)
-                          }
-                          .width(80)
-                          .height(60)
-                          .borderRadius(8)
-                          .backgroundColor('#F0F0F0')
-                          .justifyContent(FlexAlign.Center)
-                        }
-                        // 播放图标覆盖
-                        Text('▶')
-                          .fontSize(20)
-                          .fontColor('#FFFFFF')
-                          .backgroundColor('#80000000')
-                          .borderRadius(20)
-                          .padding(4)
-                      }
-                      Column({ space: 4 }) {
-                        Text(`视频 ${idx + 1}`)
-                          .fontSize(14)
-                          .fontColor('#333333')
-                        Text('存储于 WebDAV 服务器')
-                          .fontSize(12)
-                          .fontColor('#888888')
-                      }
-                      .alignItems(HorizontalAlign.Start)
-                      .layoutWeight(1)
-                    }
-                    .width('100%')
-                    .padding({ left: 20, right: 20, bottom: 8 })
-                    .backgroundColor('#FFFFFF')
-                  }, (p: string) => p)
-                }
-                .backgroundColor('#FFFFFF')
+                this.buildSectionHeader('视频', this.entry!.videoPaths.length)
+                Blank().height(16)
+                this.buildVideoGrid()
+                Blank().height(32)
               }
 
               Blank().height(40)
@@ -286,12 +211,13 @@ struct DiaryDetail {
           }
           .width('100%')
           .layoutWeight(1)
-          .backgroundColor('#FFF5F7')
+          .backgroundColor('#FFFFFF')
+
         } else {
           Column() {
-            Text('😢 记录未找到')
+            Text('记录未找到')
               .fontSize(16)
-              .fontColor('#888888')
+              .fontColor('#9E9E9E')
           }
           .width('100%')
           .layoutWeight(1)
@@ -301,8 +227,9 @@ struct DiaryDetail {
       }
       .width('100%')
       .height('100%')
+      .backgroundColor('#FFFFFF')
 
-      // 全屏图片预览
+      // ─── 全屏图片预览 ─────────────────────────────────────────────
       if (this.previewImagePath.length > 0) {
         Column() {
           Stack() {
@@ -310,15 +237,16 @@ struct DiaryDetail {
               .width('100%')
               .height('100%')
               .objectFit(ImageFit.Contain)
-            Button('✕')
-              .width(36)
-              .height(36)
-              .borderRadius(18)
-              .backgroundColor('#80000000')
-              .fontColor('#FFFFFF')
-              .fontSize(20)
-              .position({ right: 16, top: 48 })
-              .onClick(() => { this.previewImagePath = ''; })
+            Button({ type: ButtonType.Circle }) {
+              SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+                .fontSize(28)
+                .fontColor(['#FFFFFF'])
+            }
+            .width(44)
+            .height(44)
+            .backgroundColor('#60000000')
+            .position({ right: 16, top: 48 })
+            .onClick(() => { this.previewImagePath = ''; })
           }
           .width('100%')
           .height('100%')
@@ -329,36 +257,36 @@ struct DiaryDetail {
         .onClick(() => { this.previewImagePath = ''; })
       }
 
-      // 删除确认弹窗
+      // ─── 删除确认对话框 ──────────────────────────────────────────
       if (this.showDeleteConfirm) {
         Column() {
           Column({ space: 20 }) {
             Text('确认删除')
-              .fontSize(18)
+              .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor('#333333')
+              .fontColor('#212121')
             Text('确定要删除这条记录吗？此操作不可撤销，相关媒体文件也将从服务器删除。')
               .fontSize(14)
-              .fontColor('#666666')
+              .fontColor('#757575')
               .textAlign(TextAlign.Center)
             Row({ space: 12 }) {
               Button('取消')
                 .layoutWeight(1)
                 .height(44)
                 .borderRadius(22)
-                .backgroundColor('#F0F0F0')
-                .fontColor('#333333')
+                .backgroundColor('#EEEEEE')
+                .fontColor('#424242')
                 .onClick(() => { this.showDeleteConfirm = false; })
               Button('删除')
                 .layoutWeight(1)
                 .height(44)
                 .borderRadius(22)
-                .backgroundColor('#FF4444')
+                .backgroundColor('#F44336')
                 .fontColor('#FFFFFF')
                 .onClick(() => { this.onDelete(); })
             }
           }
-          .width('80%')
+          .width('85%')
           .padding(24)
           .backgroundColor('#FFFFFF')
           .borderRadius(16)
@@ -374,9 +302,160 @@ struct DiaryDetail {
     .height('100%')
   }
 
-  private formatDate(isoDate: string): string {
-    const d = new Date(isoDate);
-    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  // ─── Builder：区域标头 ─────────────────────────────────────────
+  @Builder
+  buildSectionHeader(title: string, count: number) {
+    Row({ space: 8 }) {
+      // SymbolGlyph icon determined by title since $r() cannot be dynamic
+      if (title === '照片') {
+        SymbolGlyph($r('sys.symbol.photo'))
+          .fontSize(18)
+          .fontColor(['#F48FB1'])
+      } else {
+        SymbolGlyph($r('sys.symbol.video_fill'))
+          .fontSize(18)
+          .fontColor(['#F48FB1'])
+      }
+      Text(title)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#212121')
+      Text(`${count}`)
+        .fontSize(12)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#757575')
+        .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+        .backgroundColor('#F5F5F5')
+        .borderRadius(10)
+    }
+    .width('100%')
+    .padding({ left: 24 })
+  }
+
+  // ─── Builder：照片网格（匹配 Flutter 逻辑）────────────────────
+  @Builder
+  buildImageGrid() {
+    if (!this.entry) return;
+    const thumbs = this.entry!.imageThumbnails.length > 0
+      ? this.entry!.imageThumbnails
+      : this.entry!.imagePaths;
+    const count = thumbs.length;
+
+    if (count === 1) {
+      // 单张 - 全宽展示
+      Stack() {
+        if (this.thumbCache[thumbs[0]]) {
+          Image(this.thumbCache[thumbs[0]])
+            .width('100%')
+            .height(240)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(16)
+        } else {
+          Column() {
+            SymbolGlyph($r('sys.symbol.photo'))
+              .fontSize(40)
+              .fontColor(['#BDBDBD'])
+          }
+          .width('100%')
+          .height(240)
+          .backgroundColor('#F5F5F5')
+          .justifyContent(FlexAlign.Center)
+          .borderRadius(16)
+        }
+      }
+      .width('100%')
+      .padding({ left: 24, right: 24 })
+      .onClick(() => { this.previewFullImage(this.entry!.imagePaths[0]); })
+    } else {
+      // 网格展示（2列或3列，与Flutter逻辑一致）
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(thumbs, (thumbPath: string, idx: number) => {
+          Stack() {
+            if (this.thumbCache[thumbPath]) {
+              Image(this.thumbCache[thumbPath])
+                .width('100%')
+                .height('100%')
+                .objectFit(ImageFit.Cover)
+                .borderRadius(10)
+            } else {
+              Column() {
+                SymbolGlyph($r('sys.symbol.photo'))
+                  .fontSize(24)
+                  .fontColor(['#BDBDBD'])
+              }
+              .width('100%')
+              .height('100%')
+              .backgroundColor('#F5F5F5')
+              .justifyContent(FlexAlign.Center)
+              .borderRadius(10)
+            }
+          }
+          .width(count === 2 || count === 4 ? '48%' : '31%')
+          .aspectRatio(1)
+          .margin({ right: 4, bottom: 4 })
+          .onClick(() => { this.previewFullImage(this.entry!.imagePaths[idx]); })
+        }, (p: string) => p)
+      }
+      .padding({ left: 24, right: 24 })
+    }
+  }
+
+  // ─── Builder：视频网格（2列 16:10 比例）──────────────────────
+  @Builder
+  buildVideoGrid() {
+    if (!this.entry) return;
+    Flex({ wrap: FlexWrap.Wrap }) {
+      ForEach(this.entry!.videoPaths, (videoPath: string, idx: number) => {
+        Stack() {
+          if (this.entry!.videoThumbnails[idx] &&
+              this.thumbCache[this.entry!.videoThumbnails[idx]]) {
+            Image(this.thumbCache[this.entry!.videoThumbnails[idx]])
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Cover)
+              .borderRadius(10)
+          } else {
+            Column() {
+              SymbolGlyph($r('sys.symbol.video_fill'))
+                .fontSize(32)
+                .fontColor(['#F48FB1'])
+            }
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#F5F5F5')
+            .justifyContent(FlexAlign.Center)
+            .borderRadius(10)
+          }
+          // 播放按钮覆盖
+          Column() {
+            Column() {
+              SymbolGlyph($r('sys.symbol.play_fill'))
+                .fontSize(22)
+                .fontColor(['#E91E63'])
+            }
+            .width(44)
+            .height(44)
+            .borderRadius(22)
+            .backgroundColor('#CCFFFFFF')
+            .justifyContent(FlexAlign.Center)
+            .alignItems(HorizontalAlign.Center)
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+        }
+        .width('48%')
+        .aspectRatio(1.6)
+        .margin({ right: 4, bottom: 4 })
+      }, (p: string) => p)
+    }
+    .padding({ left: 24, right: 24 })
+  }
+
+  private getWeekday(date: Date): string {
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    return days[date.getDay()];
   }
 
   private async loadData(): Promise<void> {
@@ -386,11 +465,8 @@ struct DiaryDetail {
       if (!cfg) return;
       this.config = cfg;
       await this.webdavService.initialize(cfg);
-
       const entries = await this.webdavService.loadAllEntries();
       this.entry = entries.find(e => e.id === this.entryId) ?? null;
-
-      // 加载缩略图
       if (this.entry && this.context) {
         this.loadThumbnails();
       }
@@ -401,19 +477,16 @@ struct DiaryDetail {
     }
   }
 
-  /** 异步加载所有缩略图到本地缓存 */
   private async loadThumbnails(): Promise<void> {
     if (!this.entry || !this.context) return;
     const mediaService = new MediaService(this.context);
     this.loadingThumbs = true;
-
     const allThumbs = [
       ...this.entry.imageThumbnails,
       ...this.entry.videoThumbnails.filter(t => t.length > 0),
     ];
-
     for (const thumbPath of allThumbs) {
-      if (thumbPath.length === 0 || this.thumbCache[thumbPath]) continue;
+      if (!thumbPath || this.thumbCache[thumbPath]) continue;
       try {
         const localPath = await mediaService.getCachedMediaPath(thumbPath, this.webdavService);
         if (localPath.length > 0) {
@@ -428,14 +501,12 @@ struct DiaryDetail {
     this.loadingThumbs = false;
   }
 
-  /** 全屏预览完整图片（先从缓存，再从 WebDAV 下载） */
   private async previewFullImage(imagePath: string): Promise<void> {
     if (!this.context) return;
     const mediaService = new MediaService(this.context);
     try {
       let localPath = this.thumbCache[imagePath] ?? '';
       if (!localPath) {
-        promptAction.showToast({ message: '加载图片中...' });
         localPath = await mediaService.getCachedMediaPath(imagePath, this.webdavService);
       }
       if (localPath.length > 0) {
@@ -452,10 +523,7 @@ struct DiaryDetail {
     if (!this.entry || !this.config) return;
     router.pushUrl({
       url: 'pages/DiaryEditor',
-      params: {
-        configId: this.config.id,
-        entryJson: JSON.stringify(this.entry.toJson()),
-      }
+      params: { configId: this.config.id, entryJson: JSON.stringify(this.entry.toJson()) }
     });
   }
 

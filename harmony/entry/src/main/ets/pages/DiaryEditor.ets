@@ -2,8 +2,7 @@ import router from '@ohos.router';
 import promptAction from '@ohos.promptAction';
 import common from '@ohos.app.ability.common';
 import { DiaryEntry, AgeCalculator } from '../model/DiaryEntry';
-import { AppConfig } from '../model/AppConfig';
-import { generateUUID } from '../model/AppConfig';
+import { AppConfig, generateUUID } from '../model/AppConfig';
 import { PreferencesService } from '../service/PreferencesService';
 import { WebDAVService } from '../service/WebDAVService';
 import { MediaService } from '../service/MediaService';
@@ -17,7 +16,11 @@ interface LocalMediaItem {
 
 /**
  * 日记编辑页面
- * 支持：新建/编辑日记条目（文字 + 日期）、选取并上传照片/视频
+ * 风格与 Flutter DiaryEditorScreen 保持一致：
+ * - 白色 AppBar，左侧 xmark 关闭图标，居中标题，右侧保存按钮
+ * - 日期选择行（日历图标 + 日期文字 + 星期 + 右箭头）
+ * - Apple Notes 风格：大标题输入框 + 内容输入区（无标签）
+ * - 媒体区：横向滚动缩略图 + 照片/视频添加按钮（SymbolGlyph）
  */
 @Entry
 @Component
@@ -43,26 +46,33 @@ struct DiaryEditor {
     const params = router.getParams() as Record<string, string>;
     const configId = params?.['configId'] ?? '';
     const entryJson = params?.['entryJson'] ?? '';
-    this.initData(configId, entryJson);
+    const autoPickPhoto = params?.['autoPickPhoto'] === 'true';
+    const autoPickVideo = params?.['autoPickVideo'] === 'true';
+    this.initData(configId, entryJson, autoPickPhoto, autoPickVideo);
   }
 
-  private async initData(configId: string, entryJson: string): Promise<void> {
+  private async initData(
+    configId: string, entryJson: string,
+    autoPickPhoto: boolean, autoPickVideo: boolean
+  ): Promise<void> {
     try {
       const cfg = await this.prefsService.loadConfig(configId);
       if (!cfg) return;
       this.config = cfg;
       await this.webdavService.initialize(cfg);
-
       if (entryJson.length > 0) {
         this.entryToEdit = DiaryEntry.fromJson(JSON.parse(entryJson) as Record<string, Object>);
         this.title = this.entryToEdit.title;
         this.content = this.entryToEdit.description;
-        this.selectedDateStr = this.formatDate(new Date(this.entryToEdit.date));
         this.selectedDate = new Date(this.entryToEdit.date);
+        this.selectedDateStr = this.formatDate(this.selectedDate);
       } else {
         this.selectedDate = new Date();
         this.selectedDateStr = this.formatDate(this.selectedDate);
       }
+      // 自动弹出媒体选取器
+      if (autoPickPhoto) this.pickPhotos();
+      else if (autoPickVideo) this.pickVideos();
     } catch (e) {
       promptAction.showToast({ message: `初始化失败: ${e}` });
     }
@@ -71,218 +81,219 @@ struct DiaryEditor {
   build() {
     Stack() {
       Column() {
-        // 顶部应用栏
+        // ─── 白色 AppBar（Flutter 风格）──────────────────────────────
         Row() {
+          // 左侧关闭按钮
           Button({ type: ButtonType.Circle }) {
-            Text('←')
-              .fontSize(20)
-              .fontColor('#E91E8C')
+            SymbolGlyph($r('sys.symbol.xmark'))
+              .fontSize(18)
+              .fontColor(['#212121'])
           }
           .width(40)
           .height(40)
-          .backgroundColor('#FFF0F5')
+          .backgroundColor(Color.Transparent)
           .onClick(() => { router.back(); })
 
-          Text(this.entryToEdit ? '编辑记录' : '新建记录')
-            .fontSize(18)
+          // 居中标题
+          Text(this.entryToEdit ? '编辑日记' : '写日记')
+            .fontSize(17)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#333333')
+            .fontColor('#212121')
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
+          // 右侧保存按钮（粉色胶囊）
           Button(this.isSavingEntry ? '...' : '保存')
             .height(36)
-            .borderRadius(18)
-            .backgroundColor('#E91E8C')
-            .fontColor('#FFFFFF')
+            .borderRadius(20)
+            .backgroundColor('#FCE4EC')
+            .fontColor('#E91E63')
             .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .padding({ left: 16, right: 16 })
             .enabled(!this.isSavingEntry)
             .onClick(() => { this.onSave(); })
         }
         .width('100%')
-        .height(60)
-        .padding({ left: 12, right: 16 })
+        .height(56)
+        .padding({ left: 8, right: 16 })
         .backgroundColor('#FFFFFF')
-        .shadow({ radius: 4, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
 
-        // 表单内容
+        Divider()
+          .strokeWidth(0.5)
+          .color('#F0F0F0')
+
+        // ─── 日期选择行（Flutter 风格）──────────────────────────────
+        Row() {
+          // 日历图标容器（粉色圆角）
+          Column() {
+            SymbolGlyph($r('sys.symbol.calendar'))
+              .fontSize(18)
+              .fontColor(['#E91E63'])
+          }
+          .width(36)
+          .height(36)
+          .borderRadius(8)
+          .backgroundColor('#FCE4EC')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .margin({ right: 12 })
+
+          Text(this.selectedDateStr.length > 0
+            ? this.formatDisplayDate(this.selectedDate)
+            : '选择日期')
+            .fontSize(16)
+            .fontWeight(FontWeight.W600)
+            .fontColor('#424242')
+
+          Blank().width(8)
+          Text(this.selectedDateStr.length > 0
+            ? this.getWeekday(this.selectedDate)
+            : '')
+            .fontSize(14)
+            .fontColor('#9E9E9E')
+
+          Blank().layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(13)
+            .fontColor(['#BDBDBD'])
+        }
+        .width('100%')
+        .padding({ left: 24, right: 16, top: 12, bottom: 12 })
+        .backgroundColor('#FFFFFF')
+        .onClick(() => { this.showDatePicker = true; })
+
+        Divider()
+          .strokeWidth(0.5)
+          .color('#EEEEEE')
+          .margin({ left: 24, right: 24 })
+
+        // ─── 内容编辑区域 ─────────────────────────────────────────
         Scroll() {
-          Column({ space: 20 }) {
-            // 日期选择
-            Column({ space: 6 }) {
-              Text('记录日期')
-                .fontSize(14)
-                .fontColor('#666666')
-                .width('100%')
-              Row() {
-                Text('📅')
-                  .fontSize(18)
-                  .margin({ right: 8 })
-                Text(this.selectedDateStr.length > 0 ? this.selectedDateStr : '点击选择日期')
-                  .fontSize(16)
-                  .fontColor(this.selectedDateStr.length > 0 ? '#333333' : '#AAAAAA')
-                  .layoutWeight(1)
-                if (this.config?.babyBirthDate && this.selectedDateStr.length > 0) {
-                  Text(AgeCalculator.formatDetailedAgeLabel(
-                    new Date(this.selectedDateStr).toISOString(),
-                    this.config.babyBirthDate
-                  ))
-                    .fontSize(13)
-                    .fontColor('#E91E8C')
-                    .backgroundColor('#FFF0F5')
-                    .borderRadius(8)
-                    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                }
-              }
+          Column({ space: 0 }) {
+            // 标题大输入（24px bold，无边框）
+            TextInput({
+              placeholder: '输入标题...',
+              text: this.title
+            })
+              .onChange((val) => { this.title = val; })
+              .fontSize(24)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#212121')
+              .placeholderColor('#BDBDBD')
+              .placeholderFont({ size: 24, weight: FontWeight.Bold })
+              .backgroundColor(Color.Transparent)
+              .borderWidth(0)
               .width('100%')
-              .height(52)
-              .borderRadius(12)
-              .backgroundColor('#FFFFFF')
-              .borderWidth(1)
-              .borderColor('#F0C0D0')
-              .padding({ left: 12, right: 12 })
-              .onClick(() => { this.showDatePicker = true; })
-            }
-            .width('100%')
+              .padding({ left: 24, right: 24, top: 20, bottom: 8 })
 
-            // 标题
-            Column({ space: 6 }) {
-              Text('标题')
-                .fontSize(14)
-                .fontColor('#666666')
-                .width('100%')
-              TextInput({ placeholder: '今天发生了什么...', text: this.title })
-                .onChange((val) => { this.title = val; })
-                .width('100%')
-                .height(52)
-                .borderRadius(12)
-                .backgroundColor('#FFFFFF')
-                .borderWidth(1)
-                .borderColor('#F0C0D0')
-                .padding({ left: 12, right: 12 })
-            }
-            .width('100%')
+            Blank().height(16)
 
-            // 内容
-            Column({ space: 6 }) {
-              Text('描述')
-                .fontSize(14)
-                .fontColor('#666666')
-                .width('100%')
-              TextArea({ placeholder: '记录宝宝成长的点点滴滴...', text: this.content })
-                .onChange((val) => { this.content = val; })
-                .width('100%')
-                .height(160)
-                .borderRadius(12)
-                .backgroundColor('#FFFFFF')
-                .borderWidth(1)
-                .borderColor('#F0C0D0')
-                .padding(12)
-            }
-            .width('100%')
-
-            // 媒体区
-            Column({ space: 10 }) {
-              Row() {
-                Text('照片 / 视频')
-                  .fontSize(14)
-                  .fontColor('#666666')
-                  .layoutWeight(1)
-                if (this.localMediaItems.length > 0) {
-                  Text(`已选 ${this.localMediaItems.length} 项`)
-                    .fontSize(12)
-                    .fontColor('#E91E8C')
-                }
-              }
+            // 正文输入区（17px，无边框，自适应高度）
+            TextArea({
+              placeholder: '记录今天发生的趣事...',
+              text: this.content
+            })
+              .onChange((val) => { this.content = val; })
+              .fontSize(17)
+              .lineHeight(27)
+              .fontColor('#212121')
+              .placeholderColor('#BDBDBD')
+              .placeholderFont({ size: 17 })
+              .backgroundColor(Color.Transparent)
+              .borderWidth(0)
               .width('100%')
+              .padding({ left: 24, right: 24 })
+              .maxLines(999)
 
-              // 已选媒体缩略图列表
-              if (this.localMediaItems.length > 0) {
-                Scroll() {
-                  Row({ space: 8 }) {
-                    ForEach(this.localMediaItems, (item: LocalMediaItem, idx: number) => {
-                      Stack() {
-                        if (item.type === 'photo') {
-                          Image(item.uri)
-                            .width(80)
-                            .height(80)
-                            .borderRadius(8)
-                            .objectFit(ImageFit.Cover)
-                        } else {
-                          Column() {
-                            Text('🎬')
-                              .fontSize(28)
-                            Text('视频')
-                              .fontSize(11)
-                              .fontColor('#888888')
-                          }
-                          .width(80)
-                          .height(80)
+            Blank().height(24)
+
+            // ─── 媒体区 ──────────────────────────────────────────
+            if (this.localMediaItems.length > 0) {
+              // 已选媒体横向滚动列表
+              Scroll() {
+                Row({ space: 8 }) {
+                  ForEach(this.localMediaItems, (item: LocalMediaItem, idx: number) => {
+                    Stack() {
+                      if (item.type === 'photo') {
+                        Image(item.uri)
+                          .width(90)
+                          .height(90)
                           .borderRadius(8)
-                          .backgroundColor('#F0F0F0')
-                          .justifyContent(FlexAlign.Center)
-                          .alignItems(HorizontalAlign.Center)
+                          .objectFit(ImageFit.Cover)
+                      } else {
+                        Column() {
+                          SymbolGlyph($r('sys.symbol.video_fill'))
+                            .fontSize(30)
+                            .fontColor(['#F48FB1'])
+                          Text('视频')
+                            .fontSize(11)
+                            .fontColor('#9E9E9E')
                         }
-                        Button('✕')
-                          .width(20)
-                          .height(20)
-                          .borderRadius(10)
-                          .backgroundColor('#80000000')
-                          .fontColor('#FFFFFF')
-                          .fontSize(11)
-                          .position({ right: 2, top: 2 })
-                          .onClick(() => { this.removeMedia(idx); })
+                        .width(90)
+                        .height(90)
+                        .borderRadius(8)
+                        .backgroundColor('#F5F5F5')
+                        .justifyContent(FlexAlign.Center)
+                        .alignItems(HorizontalAlign.Center)
                       }
-                    }, (item: LocalMediaItem) => item.uri)
-                  }
+                      // 删除按钮
+                      Button({ type: ButtonType.Circle }) {
+                        SymbolGlyph($r('sys.symbol.xmark'))
+                          .fontSize(10)
+                          .fontColor(['#FFFFFF'])
+                      }
+                      .width(20)
+                      .height(20)
+                      .backgroundColor('#80000000')
+                      .position({ right: 2, top: 2 })
+                      .onClick(() => { this.removeMedia(idx); })
+                    }
+                  }, (item: LocalMediaItem) => item.uri)
                 }
-                .scrollable(ScrollDirection.Horizontal)
-                .width('100%')
+                .padding({ left: 24, right: 24 })
               }
-
-              Row({ space: 10 }) {
-                Button() {
-                  Row({ space: 6 }) {
-                    Text('📷')
-                      .fontSize(16)
-                    Text('添加照片')
-                      .fontSize(14)
-                      .fontColor('#E91E8C')
-                  }
-                }
-                .layoutWeight(1)
-                .height(44)
-                .borderRadius(22)
-                .backgroundColor('#FFF0F5')
-                .borderWidth(1)
-                .borderColor('#F0C0D0')
-                .onClick(() => { this.pickPhotos(); })
-
-                Button() {
-                  Row({ space: 6 }) {
-                    Text('🎬')
-                      .fontSize(16)
-                    Text('添加视频')
-                      .fontSize(14)
-                      .fontColor('#E91E8C')
-                  }
-                }
-                .layoutWeight(1)
-                .height(44)
-                .borderRadius(22)
-                .backgroundColor('#FFF0F5')
-                .borderWidth(1)
-                .borderColor('#F0C0D0')
-                .onClick(() => { this.pickVideos(); })
-              }
+              .scrollable(ScrollDirection.Horizontal)
               .width('100%')
+              Blank().height(16)
+            }
+
+            // 添加媒体按钮行
+            Row({ space: 16 }) {
+              // 添加照片
+              Button({ type: ButtonType.Normal }) {
+                Row({ space: 8 }) {
+                  SymbolGlyph($r('sys.symbol.photo'))
+                    .fontSize(18)
+                    .fontColor(['#E91E63'])
+                  Text('照片')
+                    .fontSize(14)
+                    .fontColor('#E91E63')
+                }
+              }
+              .backgroundColor('#FCE4EC')
+              .borderRadius(20)
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              .onClick(() => { this.pickPhotos(); })
+
+              // 添加视频
+              Button({ type: ButtonType.Normal }) {
+                Row({ space: 8 }) {
+                  SymbolGlyph($r('sys.symbol.video_fill'))
+                    .fontSize(18)
+                    .fontColor(['#E91E63'])
+                  Text('视频')
+                    .fontSize(14)
+                    .fontColor('#E91E63')
+                }
+              }
+              .backgroundColor('#FCE4EC')
+              .borderRadius(20)
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              .onClick(() => { this.pickVideos(); })
             }
             .width('100%')
-            .padding(16)
-            .borderRadius(12)
-            .backgroundColor('#FFFFFF')
-            .borderWidth(1)
-            .borderColor('#F0C0D0')
+            .padding({ left: 24, right: 24 })
 
             // 上传进度提示
             if (this.uploadProgress.length > 0) {
@@ -290,46 +301,43 @@ struct DiaryEditor {
                 LoadingProgress()
                   .width(16)
                   .height(16)
-                  .color('#E91E8C')
+                  .color('#E91E63')
                 Text(this.uploadProgress)
                   .fontSize(13)
-                  .fontColor('#E91E8C')
-                  .layoutWeight(1)
+                  .fontColor('#E91E63')
               }
               .width('100%')
-              .padding(12)
-              .borderRadius(8)
-              .backgroundColor('#FFF0F5')
+              .padding({ left: 24, right: 24, top: 8 })
             }
 
-            Blank().height(40)
+            Blank().height(100)
           }
-          .padding(20)
         }
         .width('100%')
         .layoutWeight(1)
-        .backgroundColor('#FFF5F7')
+        .backgroundColor('#FFFFFF')
       }
       .width('100%')
       .height('100%')
+      .backgroundColor('#FFFFFF')
 
-      // 日期选择器弹窗
+      // ─── 日期选择器弹窗 ──────────────────────────────────────────
       if (this.showDatePicker) {
         Column() {
           Column({ space: 0 }) {
             Row() {
               Button('取消')
                 .backgroundColor(Color.Transparent)
-                .fontColor('#888888')
+                .fontColor('#9E9E9E')
                 .onClick(() => { this.showDatePicker = false; })
-              Blank()
+              Blank().layoutWeight(1)
               Text('选择日期')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-              Blank()
+              Blank().layoutWeight(1)
               Button('确定')
                 .backgroundColor(Color.Transparent)
-                .fontColor('#E91E8C')
+                .fontColor('#E91E63')
                 .onClick(() => {
                   this.selectedDateStr = this.formatDate(this.selectedDate);
                   this.showDatePicker = false;
@@ -353,7 +361,7 @@ struct DiaryEditor {
           }
           .width('100%')
           .backgroundColor('#FFFFFF')
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 20, topRight: 20 })
           .padding({ top: 8, bottom: 20 })
         }
         .width('100%')
@@ -398,7 +406,16 @@ struct DiaryEditor {
     return `${y}-${m}-${d}`;
   }
 
-  /** 从 URI 中提取文件扩展名（小写），无法识别时返回空字符串 */
+  private formatDisplayDate(date: Date): string {
+    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  }
+
+  private getWeekday(date: Date): string {
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    return days[date.getDay()];
+  }
+
+  /** 从 URI 中提取文件扩展名 */
   private extractExtension(uri: string): string {
     const dotIdx = uri.lastIndexOf('.');
     if (dotIdx < 0) return '';
@@ -416,19 +433,15 @@ struct DiaryEditor {
       promptAction.showToast({ message: '配置未加载，请返回重试' });
       return;
     }
-
     this.isSavingEntry = true;
     try {
       const dateIso = this.selectedDateStr.length > 0
         ? new Date(this.selectedDateStr).toISOString()
         : new Date().toISOString();
-
       const ageInMonths = this.config.babyBirthDate
         ? AgeCalculator.calculateAgeInMonths(this.config.babyBirthDate, dateIso)
         : 0;
-
       const entryId = this.entryToEdit?.id ?? generateUUID();
-
       const imagePaths: string[] = [...(this.entryToEdit?.imagePaths ?? [])];
       const videoPaths: string[] = [...(this.entryToEdit?.videoPaths ?? [])];
       const imageThumbs: string[] = [...(this.entryToEdit?.imageThumbnails ?? [])];
@@ -453,8 +466,6 @@ struct DiaryEditor {
               videoThumbs.push('');
             }
           } catch (uploadErr) {
-            console.error(`DiaryEditor upload item ${i} failed:`, uploadErr);
-            // 从 URI 提取扩展名，确保与原始文件格式一致
             const ext = item.type === 'photo'
               ? 'jpg'
               : (this.extractExtension(item.uri) || 'mp4');
@@ -476,17 +487,9 @@ struct DiaryEditor {
       }
 
       const entry = new DiaryEntry(
-        entryId,
-        dateIso,
-        this.title.trim(),
-        this.content.trim(),
-        imagePaths,
-        videoPaths,
-        imageThumbs,
-        videoThumbs,
-        ageInMonths,
+        entryId, dateIso, this.title.trim(), this.content.trim(),
+        imagePaths, videoPaths, imageThumbs, videoThumbs, ageInMonths,
       );
-
       await this.webdavService.saveDiaryEntry(entry);
       promptAction.showToast({ message: this.entryToEdit ? '记录已更新' : '记录已保存' });
       router.back();

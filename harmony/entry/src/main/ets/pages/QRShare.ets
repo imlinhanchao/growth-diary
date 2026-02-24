@@ -51,32 +51,33 @@ struct QRShare {
   build() {
     Stack() {
       Column() {
-        // 顶部应用栏
+        // ─── 白色 AppBar ─────────────────────────────────────────────
         Row() {
           Button({ type: ButtonType.Circle }) {
-            Text('←')
+            SymbolGlyph($r('sys.symbol.arrow_left'))
               .fontSize(20)
-              .fontColor('#E91E8C')
+              .fontColor(['#212121'])
           }
           .width(40)
           .height(40)
-          .backgroundColor('#FFF0F5')
+          .backgroundColor(Color.Transparent)
           .onClick(() => { router.back(); })
 
           Text('分享 / 导入配置')
-            .fontSize(18)
+            .fontSize(17)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#333333')
+            .fontColor('#212121')
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
-          Blank().width(48)
+          Blank().width(40)
         }
         .width('100%')
-        .height(60)
-        .padding({ left: 12, right: 12 })
+        .height(56)
+        .padding({ left: 8, right: 8 })
         .backgroundColor('#FFFFFF')
-        .shadow({ radius: 4, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
+
+        Divider().strokeWidth(0.5).color('#F0F0F0')
 
         Scroll() {
           Column({ space: 20 }) {
@@ -86,7 +87,7 @@ struct QRShare {
                 Text('分享给其他设备')
                   .fontSize(16)
                   .fontWeight(FontWeight.Bold)
-                  .fontColor('#333333')
+                  .fontColor('#212121')
                   .width('100%')
 
                 Text(`宝宝：${this.config.babyName}`)
@@ -118,8 +119,8 @@ struct QRShare {
                   .width('100%')
                   .height(44)
                   .borderRadius(22)
-                  .backgroundColor('#FFF0F5')
-                  .fontColor('#E91E8C')
+                  .backgroundColor('#FCE4EC')
+                  .fontColor('#E91E63')
                   .fontSize(15)
                   .onClick(() => { this.copyQRData(); })
               }
@@ -127,7 +128,7 @@ struct QRShare {
               .padding(20)
               .borderRadius(16)
               .backgroundColor('#FFFFFF')
-              .shadow({ radius: 8, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
+              .shadow({ radius: 8, color: '#1AE91E63', offsetX: 0, offsetY: 2 })
               .alignItems(HorizontalAlign.Center)
             }
 
@@ -136,7 +137,7 @@ struct QRShare {
               Text('从其他设备导入')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor('#333333')
+                .fontColor('#212121')
                 .width('100%')
 
               Text('请将另一台设备上复制的配置数据粘贴到下方：')
@@ -149,7 +150,7 @@ struct QRShare {
                 .width('100%')
                 .height(120)
                 .borderRadius(12)
-                .backgroundColor('#FFF5F7')
+                .backgroundColor('#FAFAFA')
                 .borderWidth(1)
                 .borderColor('#F0C0D0')
                 .padding(12)
@@ -158,7 +159,7 @@ struct QRShare {
                 .width('100%')
                 .height(44)
                 .borderRadius(22)
-                .backgroundColor('#E91E8C')
+                .backgroundColor('#E91E63')
                 .fontColor('#FFFFFF')
                 .fontSize(15)
                 .enabled(!this.isImporting && this.importText.trim().length > 0)
@@ -168,7 +169,7 @@ struct QRShare {
             .padding(20)
             .borderRadius(16)
             .backgroundColor('#FFFFFF')
-            .shadow({ radius: 8, color: '#1AE91E8C', offsetX: 0, offsetY: 2 })
+            .shadow({ radius: 8, color: '#1AE91E63', offsetX: 0, offsetY: 2 })
 
             Blank().height(40)
           }
@@ -176,7 +177,7 @@ struct QRShare {
         }
         .width('100%')
         .layoutWeight(1)
-        .backgroundColor('#FFF5F7')
+        .backgroundColor('#FAFAFA')
       }
       .width('100%')
       .height('100%')
@@ -282,7 +283,7 @@ struct QRShare {
       promptAction.showDialog({
         title: '配置数据',
         message: this.qrData,
-        buttons: [{ text: '关闭', color: '#E91E8C' }],
+        buttons: [{ text: '关闭', color: '#E91E63' }],
       });
     }
   }
