@@ -3,6 +3,7 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'dart:typed_data';
 import 'dart:async';
 import '../models/app_config.dart';
+import '../models/baby_event.dart';
 import '../models/diary_entry.dart';
 import '../services/cloud_storage_service.dart';
 import '../services/media_upload_service.dart';
@@ -62,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Uint8List? _coverImageData;
   bool _isLoadingCoverImage = false;
   bool _isExpanded = false;
+  bool _showEventPanel = true;
   final ValueNotifier<UploadProgressData> _uploadProgressNotifier =
       ValueNotifier(UploadProgressData(false, ''));
 
@@ -80,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     configs = Map.from(widget.configs);
     currentConfigId = widget.currentConfigId;
     currentConfig = configs[currentConfigId]!;
+    _showEventPanel = currentConfig.showEventPanel;
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
 
@@ -240,6 +243,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _handleConfigChanged(AppConfig newConfig) async {
     setState(() {
       currentConfig = newConfig;
+      _showEventPanel = newConfig.showEventPanel;
       // 清除封面图像缓存
       _coverImageData = null;
       _isLoadingCoverImage = false;
@@ -678,6 +682,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ).then((_) => _loadEntries());
   }
 
+  Future<void> _addQuickEvent(BabyEvent event) async {
+    try {
+      final now = DateTime.now();
+      final entryCreationService = EntryCreationService(widget.cloudService);
+      final entry = await entryCreationService.createDiaryEntry(
+        event.name,
+        '',
+        currentConfig,
+        customDate: now,
+      );
+      await widget.cloudService.saveDiaryEntry(entry);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已记录：${event.name}')),
+        );
+        _loadEntries();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('记录失败: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleEventPanelVisibility() async {
+    final newValue = !_showEventPanel;
+    setState(() {
+      _showEventPanel = newValue;
+      currentConfig = currentConfig.copyWith(showEventPanel: newValue);
+      configs[currentConfigId] = currentConfig;
+    });
+    await widget.localStorage.saveConfig(currentConfig);
+    await widget.cloudService.saveConfig(currentConfig);
+    widget.onConfigChanged(currentConfig);
+  }
+
   void _showBackgroundUploadNotification() {
     // 检查是否有活跃的上传任务
     if (MediaUploadService.hasActiveUploads()) {
@@ -1060,6 +1102,114 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ],
+            ),
+          ),
+          _buildEventPanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventPanel() {
+    final visibleEvents =
+        currentConfig.events.where((e) => e.isVisible).toList();
+    return Positioned(
+      bottom: 16.0,
+      left: 16.0,
+      right: 88.0,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_showEventPanel && visibleEvents.isNotEmpty)
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: visibleEvents.map((event) {
+                  return InkWell(
+                    onTap: () => _addQuickEvent(event),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.pink.shade50,
+                        borderRadius: BorderRadius.circular(20),
+                        border:
+                            Border.all(color: Colors.pink.shade100),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(event.icon,
+                              size: 16, color: Colors.pink.shade400),
+                          const SizedBox(width: 4),
+                          Text(
+                            event.name,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.pink.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: _toggleEventPanelVisibility,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _showEventPanel
+                        ? Icons.keyboard_arrow_down
+                        : Icons.keyboard_arrow_up,
+                    size: 16,
+                    color: Colors.pink.shade400,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _showEventPanel ? '收起事件' : '展开事件',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.pink.shade400,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1734,6 +1884,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         setState(() {
                           currentConfigId = config.id;
                           currentConfig = config;
+                          _showEventPanel = config.showEventPanel;
                           widget.localStorage.setCurrentConfigId(config.id);
                         });
                         Navigator.of(context).pop(); // 关闭抽屉
@@ -2039,6 +2190,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() {
           configs[currentConfigId] = webdavConfig;
           currentConfig = webdavConfig;
+          _showEventPanel = webdavConfig.showEventPanel;
         });
 
         // 保存到本地存储

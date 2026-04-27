@@ -4,6 +4,7 @@ import '../services/cloud_storage_service.dart';
 import '../services/local_storage_service.dart';
 import 'webdav_config_screen.dart';
 import 'app_settings_screen.dart';
+import 'events_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final AppConfig config;
@@ -262,6 +263,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
           _buildSection('应用'),
           _buildSettingsGroup([
+            _buildSettingsTile(
+              icon: Icons.event_note,
+              title: '事件管理',
+              subtitle: '管理首页快捷事件',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => EventsSettingsScreen(
+                      config: _config,
+                      cloudService: widget.cloudService,
+                      onConfigChanged: (newConfig) {
+                        setState(() {
+                          _config = newConfig;
+                        });
+                        widget.onConfigChanged(newConfig);
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+            _buildDivider(),
             _buildSettingsTile(
               icon: Icons.settings_applications,
               title: '应用设置',

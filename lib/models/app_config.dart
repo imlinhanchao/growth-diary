@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 import '../utils/age_calculator.dart';
+import 'baby_event.dart';
 
 class Baby {
   String id;
@@ -66,6 +67,8 @@ class AppConfig {
   String? babyCoverImagePath; // 宝宝封面图路径
   int videoCompressionThreshold; // 视频压缩阈值，单位MB，0表示不压缩
   List<String> webdavMirrors = []; // WebDAV 镜像地址列表
+  List<BabyEvent> events = []; // 事件列表
+  bool showEventPanel; // 是否在首页显示事件面板
 
   AppConfig({
     this.id = '',
@@ -78,11 +81,14 @@ class AppConfig {
     this.babyCoverImagePath,
     this.videoCompressionThreshold = 10, // 默认10MB
     List<String>? webdavMirrors,
+    List<BabyEvent>? events,
+    this.showEventPanel = true,
   }) {
     if (id.isEmpty) {
       id = const Uuid().v4();
     }
     this.webdavMirrors = webdavMirrors ?? [];
+    this.events = events ?? BabyEvent.defaultEvents();
 
     // 向后兼容：如果有旧的 webdavUrl 但 mirrors 为空，则迁移
     if (webdavUrl.isNotEmpty && this.webdavMirrors.isEmpty) {
@@ -127,6 +133,8 @@ class AppConfig {
     String? babyCoverImagePath,
     int? videoCompressionThreshold,
     List<String>? webdavMirrors,
+    List<BabyEvent>? events,
+    bool? showEventPanel,
   }) {
     return AppConfig(
       id: id ?? this.id,
@@ -140,6 +148,8 @@ class AppConfig {
       videoCompressionThreshold:
           videoCompressionThreshold ?? this.videoCompressionThreshold,
       webdavMirrors: webdavMirrors ?? List.from(this.webdavMirrors),
+      events: events ?? List.from(this.events),
+      showEventPanel: showEventPanel ?? this.showEventPanel,
     );
   }
 
@@ -155,6 +165,8 @@ class AppConfig {
       'babyCoverImagePath': babyCoverImagePath,
       'videoCompressionThreshold': videoCompressionThreshold,
       'webdavMirrors': webdavMirrors,
+      'events': events.map((e) => e.toJson()).toList(),
+      'showEventPanel': showEventPanel,
     };
   }
 
@@ -181,6 +193,11 @@ class AppConfig {
               ?.map((e) => e as String)
               .toList() ??
           [],
+      events: (json['events'] as List<dynamic>?)
+              ?.map((e) => BabyEvent.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          BabyEvent.defaultEvents(),
+      showEventPanel: json['showEventPanel'] ?? true,
     );
   }
 }
