@@ -17,7 +17,7 @@ class QRService {
       'password': config.password, // 现在包含密码
       'babyCoverImagePath': config.babyCoverImagePath,
       'videoCompressionThreshold': config.videoCompressionThreshold,
-      'webdavMirrors': config.webdavMirrors,
+      'webdavMirrors': config.webdavMirrors.map((m) => m.toJson()).toList(),
       'version': '1.1', // 更新版本号
       'timestamp': DateTime.now().toIso8601String(), // 生成时间戳
     };
@@ -70,7 +70,7 @@ class QRService {
         videoCompressionThreshold:
             configData['videoCompressionThreshold'] as int? ?? 10,
         webdavMirrors: (configData['webdavMirrors'] as List<dynamic>?)
-                ?.map((e) => e as String)
+                ?.map((e) => WebDavMirror.fromJson(e))
                 .toList() ??
             [],
       );

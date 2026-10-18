@@ -54,6 +54,8 @@
 		</array>
 		<key>NSUserNotificationsUsageDescription</key>
 		<string>需要发送通知以提醒重要事件</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>需要访问位置信息以获取当前连接的WiFi名称，用于自动切换WebDAV镜像</string>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>

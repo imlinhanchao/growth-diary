@@ -1,5 +1,8 @@
 import 'package:uuid/uuid.dart';
 import '../utils/age_calculator.dart';
+import 'webdav_mirror.dart';
+
+export 'webdav_mirror.dart';
 
 class Baby {
   String id;
@@ -65,7 +68,7 @@ class AppConfig {
   DateTime? babyConceptionDate;
   String? babyCoverImagePath; // 宝宝封面图路径
   int videoCompressionThreshold; // 视频压缩阈值，单位MB，0表示不压缩
-  List<String> webdavMirrors = []; // WebDAV 镜像地址列表
+  List<WebDavMirror> webdavMirrors = []; // WebDAV 镜像地址列表
 
   AppConfig({
     this.id = '',
@@ -77,16 +80,23 @@ class AppConfig {
     this.babyConceptionDate,
     this.babyCoverImagePath,
     this.videoCompressionThreshold = 10, // 默认10MB
-    List<String>? webdavMirrors,
+    List<dynamic>? webdavMirrors,
   }) {
     if (id.isEmpty) {
       id = const Uuid().v4();
     }
-    this.webdavMirrors = webdavMirrors ?? [];
+    if (webdavMirrors != null) {
+      this.webdavMirrors = webdavMirrors.map((e) {
+        if (e is WebDavMirror) return e;
+        return WebDavMirror.fromJson(e);
+      }).toList();
+    } else {
+      this.webdavMirrors = [];
+    }
 
     // 向后兼容：如果有旧的 webdavUrl 但 mirrors 为空，则迁移
     if (webdavUrl.isNotEmpty && this.webdavMirrors.isEmpty) {
-      this.webdavMirrors.add(webdavUrl);
+      this.webdavMirrors.add(WebDavMirror(url: webdavUrl));
     }
   }
 
@@ -99,6 +109,30 @@ class AppConfig {
   String get childName => babyName;
   DateTime? get childBirthDate => babyBirthDate;
   DateTime? get conceptionDate => babyConceptionDate;
+
+  /// 获取所有镜像的 URL 列表（兼容旧代码）
+  List<String> get webdavMirrorUrls => webdavMirrors.map((m) => m.url).toList();
+
+  /// 查找与指定 WiFi SSID 匹配的镜像
+  WebDavMirror? getMirrorForWifi(String? ssid) {
+    if (ssid == null || ssid.trim().isEmpty) return null;
+    for (final mirror in webdavMirrors) {
+      if (mirror.matchesWifi(ssid)) {
+        return mirror;
+      }
+    }
+    return null;
+  }
+
+  /// 获取第一个没有配置/绑定 WiFi 的镜像（作为通用/默认镜像）
+  WebDavMirror? get defaultUnboundMirror {
+    for (final mirror in webdavMirrors) {
+      if (!mirror.hasWifiBinding && mirror.url.isNotEmpty) {
+        return mirror;
+      }
+    }
+    return null;
+  }
 
   // 获取年龄标签
   String getAgeLabel() {
@@ -126,7 +160,7 @@ class AppConfig {
     DateTime? babyConceptionDate,
     String? babyCoverImagePath,
     int? videoCompressionThreshold,
-    List<String>? webdavMirrors,
+    List<WebDavMirror>? webdavMirrors,
   }) {
     return AppConfig(
       id: id ?? this.id,
@@ -154,7 +188,7 @@ class AppConfig {
       'babyConceptionDate': babyConceptionDate?.toIso8601String(),
       'babyCoverImagePath': babyCoverImagePath,
       'videoCompressionThreshold': videoCompressionThreshold,
-      'webdavMirrors': webdavMirrors,
+      'webdavMirrors': webdavMirrors.map((m) => m.toJson()).toList(),
     };
   }
 
@@ -178,7 +212,7 @@ class AppConfig {
       babyCoverImagePath: json['babyCoverImagePath'],
       videoCompressionThreshold: json['videoCompressionThreshold'] ?? 10,
       webdavMirrors: (json['webdavMirrors'] as List<dynamic>?)
-              ?.map((e) => e as String)
+              ?.map((e) => WebDavMirror.fromJson(e))
               .toList() ??
           [],
     );
