@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:growth_diary/models/app_config.dart';
 import 'package:growth_diary/services/network_service.dart';
+import 'package:growth_diary/services/qr_service.dart';
 
 void main() {
   group('WebDavMirror Tests', () {
@@ -114,6 +115,32 @@ void main() {
       expect(restored.webdavMirrors[0].wifiSsid, 'Home_WiFi');
       expect(restored.webdavMirrors[1].url, 'https://cloud.example.com');
       expect(restored.webdavMirrors[1].wifiSsid, null);
+    });
+
+    test('QRService encrypts and decrypts mirrors with wifi bindings', () {
+      final config = AppConfig(
+        id: 'test_baby_id',
+        babyName: 'Test Baby',
+        webdavUrl: 'https://cloud.example.com',
+        username: 'user',
+        password: 'pwd',
+        webdavMirrors: [
+          WebDavMirror(url: 'http://192.168.50.100:5005', wifiSsid: 'Home-WiFi, Home-5G'),
+          WebDavMirror(url: 'https://cloud.example.com'),
+        ],
+      );
+
+      final qrData = QRService.generateEncryptedQRData(config);
+      expect(qrData, isNotEmpty);
+
+      final decoded = QRService.decodeEncryptedQRData(qrData);
+      expect(decoded, isNotNull);
+      expect(decoded!.webdavMirrors.length, 2);
+      expect(decoded.webdavMirrors[0].url, 'http://192.168.50.100:5005');
+      expect(decoded.webdavMirrors[0].wifiSsid, 'Home-WiFi, Home-5G');
+      expect(decoded.webdavMirrors[0].matchesWifi('Home-WiFi'), true);
+      expect(decoded.webdavMirrors[1].url, 'https://cloud.example.com');
+      expect(decoded.webdavMirrors[1].hasWifiBinding, false);
     });
   });
 }
