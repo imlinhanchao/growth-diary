@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import '../services/cloud_storage_service.dart';
 import '../services/media_service.dart';
 
@@ -116,72 +116,100 @@ class _FullScreenImageViewState extends State<FullScreenImageView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: Text('${_currentIndex + 1} / ${widget.imagePaths.length}'),
-        actions: [
-          if (widget.onSetAsCoverImage != null)
-            IconButton(
-              icon: const Icon(Icons.photo_album),
-              tooltip: '设为封面图',
-              onPressed: _setAsCoverImage,
-            ),
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _shareImage,
-          ),
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _downloadImage,
-          ),
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-      body: PageView.builder(
-        controller: _pageController,
-        onPageChanged: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-          _loadFullImage(index);
-        },
-        itemCount: widget.imagePaths.length,
-        itemBuilder: (context, index) {
-          final imageData = _fullImageCache[index];
-          final isLoading = _loadingFullImages[index] ?? false;
-
-          if (isLoading) {
-            return const Center(
-                child: CircularProgressIndicator(color: Colors.white));
-          } else if (imageData != null) {
-            return InteractiveViewer(
-              panEnabled: true,
-              scaleEnabled: true,
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: Center(
-                child: Image.memory(
-                  imageData,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            );
-          } else {
-            return const Center(
-              child: Icon(
-                Icons.image,
-                color: Colors.white,
-                size: 100,
-              ),
-            );
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            if (_currentIndex > 0) {
+              _pageController.previousPage(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            if (_currentIndex < widget.imagePaths.length - 1) {
+              _pageController.nextPage(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+            Navigator.of(context).pop();
+            return KeyEventResult.handled;
           }
-        },
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: Text('${_currentIndex + 1} / ${widget.imagePaths.length}'),
+          actions: [
+            if (widget.onSetAsCoverImage != null)
+              IconButton(
+                icon: const Icon(Icons.photo_album),
+                tooltip: '设为封面图',
+                onPressed: _setAsCoverImage,
+              ),
+            IconButton(
+              icon: const Icon(Icons.share),
+              onPressed: _shareImage,
+            ),
+            IconButton(
+              icon: const Icon(Icons.download),
+              onPressed: _downloadImage,
+            ),
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+        body: PageView.builder(
+          controller: _pageController,
+          onPageChanged: (index) {
+            setState(() {
+              _currentIndex = index;
+            });
+            _loadFullImage(index);
+          },
+          itemCount: widget.imagePaths.length,
+          itemBuilder: (context, index) {
+            final imageData = _fullImageCache[index];
+            final isLoading = _loadingFullImages[index] ?? false;
+
+            if (isLoading) {
+              return const Center(
+                  child: CircularProgressIndicator(color: Colors.white));
+            } else if (imageData != null) {
+              return InteractiveViewer(
+                panEnabled: true,
+                scaleEnabled: true,
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Center(
+                  child: Image.memory(
+                    imageData,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              );
+            } else {
+              return const Center(
+                child: Icon(
+                  Icons.image,
+                  color: Colors.white,
+                  size: 100,
+                ),
+              );
+            }
+          },
+        ),
       ),
     );
   }

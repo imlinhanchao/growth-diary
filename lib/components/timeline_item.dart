@@ -4,6 +4,7 @@ import '../models/diary_entry.dart';
 import '../models/app_config.dart';
 import '../services/cloud_storage_service.dart';
 import '../screens/entry_detail_screen.dart';
+import '../utils/device_type.dart';
 import 'full_screen_image_view.dart';
 import 'full_screen_video_player.dart';
 
@@ -20,6 +21,13 @@ class TimelineItem extends StatefulWidget {
   final Map<String, Uint8List?> thumbnailCache;
   final Map<String, Future<Uint8List?>> thumbnailFutures;
 
+  /// 宽屏模式下点击条目的回调（替代 push 路由）。
+  /// 为 null 时使用默认的 Navigator.push。
+  final void Function(DiaryEntry)? onTapOverride;
+
+  /// 宽屏模式下是否为当前选中项（用于高亮显示）
+  final bool selectedInWideMode;
+
   const TimelineItem({
     super.key,
     required this.entry,
@@ -33,6 +41,8 @@ class TimelineItem extends StatefulWidget {
     this.onConfigChanged,
     required this.thumbnailCache,
     required this.thumbnailFutures,
+    this.onTapOverride,
+    this.selectedInWideMode = false,
   });
 
   @override
@@ -43,144 +53,165 @@ class _TimelineItemState extends State<TimelineItem> {
   bool _isPressed = false;
   @override
   Widget build(BuildContext context) {
+    final isWide = DeviceType.isWideScreen(context);
+    final isSelected = widget.selectedInWideMode;
+
     return GestureDetector(
       onTapDown: (_) => setState(() => _isPressed = true),
       onTapUp: (_) => setState(() => _isPressed = false),
       onTapCancel: () => setState(() => _isPressed = false),
       onTap: () {
-        _navigateToDetail(context);
+        if (widget.onTapOverride != null) {
+          widget.onTapOverride!(widget.entry);
+        } else {
+          _navigateToDetail(context);
+        }
       },
       child: AnimatedScale(
         scale: _isPressed ? 0.98 : 1.0,
         duration: const Duration(milliseconds: 100),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Content
-            Expanded(
-              child: Card(
-                elevation: 0,
-                color: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(0),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Padding(
-                  padding: const EdgeInsets.only(
-                    top: 12,
-                    bottom: 12,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.pink.shade50 : Colors.transparent,
+            border: isSelected
+                ? Border(
+                    left: BorderSide(color: Colors.pink.shade300, width: 3),
+                  )
+                : const Border(
+                    left: BorderSide(color: Colors.transparent, width: 3),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Title
-                      if (widget.entry.title.isNotEmpty) ...[
-                        Text(
-                          widget.entry.title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black,
-                            height: 1.3,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-
-                      // Description
-                      if (widget.entry.description.isNotEmpty) ...[
-                        Text(
-                          widget.entry.description,
-                          maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            height: 1.4,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      // Media Grid
-                      if (widget.entry.imagePaths.isNotEmpty ||
-                          widget.entry.videoPaths.isNotEmpty) ...[
-                        _buildMediaGrid(),
-                        const SizedBox(height: 6),
-                      ],
-
-                      // Footer info
-                      Row(
-                        children: [
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Content
+              Expanded(
+                child: Card(
+                  elevation: 0,
+                  color: Colors.transparent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(0),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      top: isWide ? 14 : 12,
+                      bottom: isWide ? 14 : 12,
+                      left: isWide ? 4 : 0,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Title
+                        if (widget.entry.title.isNotEmpty) ...[
                           Text(
-                            '${widget.entry.date.year}-${widget.entry.date.month.toString().padLeft(2, '0')}-${widget.entry.date.day.toString().padLeft(2, '0')}',
+                            widget.entry.title,
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
+                              fontSize: isWide ? 17.0 : 16.0,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black,
+                              height: 1.3,
                             ),
                           ),
-                          const Spacer(),
-                          if (widget.entry.imagePaths.isNotEmpty ||
-                              widget.entry.videoPaths.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (widget.entry.imagePaths.isNotEmpty) ...[
-                                    Icon(
-                                      Icons.photo,
-                                      size: 14,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${widget.entry.imagePaths.length}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
-                                  if (widget.entry.videoPaths.isNotEmpty) ...[
-                                    if (widget.entry.imagePaths.isNotEmpty)
-                                      const SizedBox(width: 8),
-                                    Icon(
-                                      Icons.videocam,
-                                      size: 14,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${widget.entry.videoPaths.length}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
-                                ],
+                          const SizedBox(height: 8),
+                        ],
+
+                        // Description
+                        if (widget.entry.description.isNotEmpty) ...[
+                          Text(
+                            widget.entry.description,
+                            maxLines: isWide ? 3 : 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: isWide ? 14.0 : 15.0,
+                              height: 1.4,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        // Media Grid
+                        if (widget.entry.imagePaths.isNotEmpty ||
+                            widget.entry.videoPaths.isNotEmpty) ...[
+                          _buildMediaGrid(context),
+                          const SizedBox(height: 6),
+                        ],
+
+                        // Footer info
+                        Row(
+                          children: [
+                            Text(
+                              '${widget.entry.date.year}-${widget.entry.date.month.toString().padLeft(2, '0')}-${widget.entry.date.day.toString().padLeft(2, '0')}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
                               ),
                             ),
-                        ],
-                      ),
-                    ],
+                            const Spacer(),
+                            if (widget.entry.imagePaths.isNotEmpty ||
+                                widget.entry.videoPaths.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (widget.entry.imagePaths.isNotEmpty) ...[
+                                      Icon(
+                                        Icons.photo,
+                                        size: 14,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${widget.entry.imagePaths.length}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                    if (widget.entry.videoPaths.isNotEmpty) ...[
+                                      if (widget.entry.imagePaths.isNotEmpty)
+                                        const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.videocam,
+                                        size: 14,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${widget.entry.videoPaths.length}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildMediaGrid() {
+  Widget _buildMediaGrid(BuildContext context) {
     final allThumbnails = [
       ...widget.entry.imageThumbnails
           .map((path) => {'path': path, 'isVideo': false}),
@@ -207,10 +238,12 @@ class _TimelineItemState extends State<TimelineItem> {
       );
     }
 
-    // Grid view
-    int crossAxisCount = 3;
+    // Grid view — 宽屏模式多列，使用 DeviceType 判断
+    int crossAxisCount;
     if (count == 2 || count == 4) {
-      crossAxisCount = 2;
+      crossAxisCount = DeviceType.isTablet(context) ? 3 : 2;
+    } else {
+      crossAxisCount = DeviceType.isTablet(context) ? 4 : 3;
     }
 
     return GridView.builder(

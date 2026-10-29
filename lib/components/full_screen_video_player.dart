@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:video_player/video_player.dart';
 import 'package:path_provider/path_provider.dart';
@@ -200,10 +201,22 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
     }
   }
 
-  String _formatDuration(Duration duration) {
+    String _formatDuration(Duration duration) {
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+
+  void _seekRelative(int seconds) {
+    final controller = _controllers[_currentIndex];
+    if (controller != null && controller.value.isInitialized) {
+      final newPos = controller.value.position + Duration(seconds: seconds);
+      final duration = controller.value.duration;
+      final clampedPos = newPos < Duration.zero
+          ? Duration.zero
+          : (newPos > duration ? duration : newPos);
+      controller.seekTo(clampedPos);
+    }
   }
 
   void _onPageChanged(int index) {
@@ -243,21 +256,56 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: PageView.builder(
-        controller: _pageController,
-        onPageChanged: _onPageChanged,
-        itemCount: widget.videoPaths.length,
-        itemBuilder: (context, index) {
-          final controller = _controllers[index];
-          final isInitialized = _isInitialized[index] ?? false;
-          final isPlaying = _isPlaying[index] ?? false;
-          final showControls = _showControls[index] ?? true;
-          final isLoading = _isLoading[index] ?? false;
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.space ||
+              event.logicalKey == LogicalKeyboardKey.select ||
+              event.logicalKey == LogicalKeyboardKey.enter) {
+            _togglePlayPause(_currentIndex);
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _seekRelative(-5);
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            _seekRelative(5);
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            if (_currentIndex > 0) {
+              _pageController.previousPage(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            if (_currentIndex < widget.videoPaths.length - 1) {
+              _pageController.nextPage(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: PageView.builder(
+          controller: _pageController,
+          onPageChanged: _onPageChanged,
+          itemCount: widget.videoPaths.length,
+          itemBuilder: (context, index) {
+            final controller = _controllers[index];
+            final isInitialized = _isInitialized[index] ?? false;
+            final isPlaying = _isPlaying[index] ?? false;
+            final showControls = _showControls[index] ?? true;
+            final isLoading = _isLoading[index] ?? false;
 
-          return Stack(
-            children: [
+            return Stack(
+              children: [
               // 视频播放器
               if (isInitialized && controller != null)
                 GestureDetector(
@@ -385,6 +433,7 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer> {
           );
         },
       ),
-    );
-  }
+    ),
+  );
+}
 }

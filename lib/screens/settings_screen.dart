@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../models/app_config.dart';
 import '../services/cloud_storage_service.dart';
 import '../services/local_storage_service.dart';
+import '../utils/device_type.dart';
 import 'webdav_config_screen.dart';
 import 'app_settings_screen.dart';
+import 'qr_scanner_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final AppConfig config;
@@ -51,10 +53,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('修改宝宝昵称'),
-        content: TextField(
-          controller: TextEditingController(text: newName),
-          onChanged: (value) => newName = value,
-          decoration: const InputDecoration(hintText: '请输入宝宝昵称'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: TextField(
+            controller: TextEditingController(text: newName),
+            onChanged: (value) => newName = value,
+            decoration: const InputDecoration(hintText: '请输入宝宝昵称'),
+          ),
         ),
         actions: [
           TextButton(
@@ -136,22 +141,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('设置视频压缩阈值'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('当视频文件大小超过此阈值时，将自动压缩。设置为0表示始终不压缩。'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: TextEditingController(text: newThreshold.toString()),
-              keyboardType: TextInputType.number,
-              onChanged: (value) =>
-                  newThreshold = int.tryParse(value) ?? newThreshold,
-              decoration: const InputDecoration(
-                hintText: '请输入阈值（MB）',
-                suffixText: 'MB',
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('当视频文件大小超过此阈值时，将自动压缩。设置为0表示始终不压缩。'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: TextEditingController(text: newThreshold.toString()),
+                keyboardType: TextInputType.number,
+                onChanged: (value) =>
+                    newThreshold = int.tryParse(value) ?? newThreshold,
+                decoration: const InputDecoration(
+                  hintText: '请输入阈值（MB）',
+                  suffixText: 'MB',
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -194,101 +202,127 @@ class _SettingsScreenState extends State<SettingsScreen> {
         scrolledUnderElevation: 0.5,
         foregroundColor: Colors.black,
       ),
-      body: ListView(
-        children: [
-          _buildSection('宝宝信息'),
-          _buildSettingsGroup([
-            _buildSettingsTile(
-              icon: Icons.baby_changing_station,
-              title: '宝宝昵称',
-              subtitle: _config.babyName,
-              onTap: _showEditChildNameDialog,
-            ),
-            _buildDivider(),
-            _buildSettingsTile(
-              icon: Icons.cake,
-              title: '宝宝生日',
-              subtitle: _config.babyBirthDate != null
-                  ? '${_config.babyBirthDate!.year}-${_config.babyBirthDate!.month.toString().padLeft(2, '0')}-${_config.babyBirthDate!.day.toString().padLeft(2, '0')}'
-                  : '未设置',
-              onTap: _editBirthDate,
-            ),
-            _buildDivider(),
-            _buildSettingsTile(
-              icon: Icons.pregnant_woman,
-              title: '受孕日',
-              subtitle: _config.babyConceptionDate != null
-                  ? '${_config.babyConceptionDate!.year}-${_config.babyConceptionDate!.month.toString().padLeft(2, '0')}-${_config.babyConceptionDate!.day.toString().padLeft(2, '0')}'
-                  : '未设置',
-              onTap: _editConceptionDate,
-            ),
-          ]),
-          _buildSection('上传设置'),
-          _buildSettingsGroup([
-            _buildSettingsTile(
-              icon: Icons.video_file,
-              title: '视频压缩阈值',
-              subtitle: _config.videoCompressionThreshold == 0
-                  ? '始终不压缩'
-                  : '${_config.videoCompressionThreshold} MB',
-              onTap: _editVideoCompressionThreshold,
-            ),
-          ]),
-          _buildSection('云存储配置'),
-          _buildSettingsGroup([
-            _buildSettingsTile(
-              icon: Icons.cloud,
-              title: 'WebDAV',
-              subtitle: '${_config.webdavUrl} (${_config.username})',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => WebDAVConfigScreen(
-                      mode: WebDAVConfigMode.settings,
-                      config: _config,
-                      webdavService: widget.cloudService,
-                      onConfigChanged: widget.onConfigChanged,
-                    ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: DeviceType.maxContentWidth(context),
+          ),
+          child: ListView(
+            children: [
+              _buildSection('宝宝信息'),
+              _buildSettingsGroup([
+                _buildSettingsTile(
+                  icon: Icons.baby_changing_station,
+                  title: '宝宝昵称',
+                  subtitle: _config.babyName,
+                  onTap: _showEditChildNameDialog,
+                ),
+                _buildDivider(),
+                _buildSettingsTile(
+                  icon: Icons.cake,
+                  title: '宝宝生日',
+                  subtitle: _config.babyBirthDate != null
+                      ? '${_config.babyBirthDate!.year}-${_config.babyBirthDate!.month.toString().padLeft(2, '0')}-${_config.babyBirthDate!.day.toString().padLeft(2, '0')}'
+                      : '未设置',
+                  onTap: _editBirthDate,
+                ),
+                _buildDivider(),
+                _buildSettingsTile(
+                  icon: Icons.pregnant_woman,
+                  title: '受孕日',
+                  subtitle: _config.babyConceptionDate != null
+                      ? '${_config.babyConceptionDate!.year}-${_config.babyConceptionDate!.month.toString().padLeft(2, '0')}-${_config.babyConceptionDate!.day.toString().padLeft(2, '0')}'
+                      : '未设置',
+                  onTap: _editConceptionDate,
+                ),
+              ]),
+              _buildSection('上传设置'),
+              _buildSettingsGroup([
+                _buildSettingsTile(
+                  icon: Icons.video_file,
+                  title: '视频压缩阈值',
+                  subtitle: _config.videoCompressionThreshold == 0
+                      ? '始终不压缩'
+                      : '${_config.videoCompressionThreshold} MB',
+                  onTap: _editVideoCompressionThreshold,
+                ),
+              ]),
+              _buildSection('云存储配置'),
+              _buildSettingsGroup([
+                _buildSettingsTile(
+                  icon: Icons.cloud,
+                  title: 'WebDAV',
+                  subtitle: '${_config.webdavUrl} (${_config.username})',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => WebDAVConfigScreen(
+                          mode: WebDAVConfigMode.settings,
+                          config: _config,
+                          webdavService: widget.cloudService,
+                          onConfigChanged: widget.onConfigChanged,
+                        ),
+                      ),
+                    ).then((_) {
+                      // 刷新配置
+                      setState(() {
+                        _config = widget.config;
+                      });
+                    });
+                  },
+                ),
+              ]),
+              if (!DeviceType.isTV(context)) ...[
+                _buildSection('跨设备同步'),
+                _buildSettingsGroup([
+                  _buildSettingsTile(
+                    icon: Icons.tv,
+                    title: '投送配置到电视',
+                    subtitle: '扫描电视屏幕上的配对二维码一键同步',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              QRScannerScreen(currentConfig: _config),
+                        ),
+                      );
+                    },
                   ),
-                ).then((_) {
-                  // 刷新配置
-                  setState(() {
-                    _config = widget.config;
-                  });
-                });
-              },
-            ),
-          ]),
-          _buildSection('应用'),
-          _buildSettingsGroup([
-            _buildSettingsTile(
-              icon: Icons.settings_applications,
-              title: '应用设置',
-              subtitle: '数据管理、缓存清理、账户设置',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => AppSettingsScreen(
-                      config: _config,
-                      cloudService: widget.cloudService,
-                      onConfigChanged: widget.onConfigChanged,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _buildDivider(),
-            _buildSettingsTile(
-              icon: Icons.info_outline,
-              title: '关于',
-              subtitle: '成长日记 v1.0.0',
-              showTrailing: false,
-            ),
-          ]),
-          const SizedBox(height: 32),
-        ],
+                ]),
+              ],
+              _buildSection('应用'),
+              _buildSettingsGroup([
+                _buildSettingsTile(
+                  icon: Icons.settings_applications,
+                  title: '应用设置',
+                  subtitle: '数据管理、缓存清理、账户设置',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AppSettingsScreen(
+                          config: _config,
+                          cloudService: widget.cloudService,
+                          onConfigChanged: widget.onConfigChanged,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _buildDivider(),
+                _buildSettingsTile(
+                  icon: Icons.info_outline,
+                  title: '关于',
+                  subtitle: '成长日记 v1.0.0',
+                  showTrailing: false,
+                ),
+              ]),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
       ),
     );
   }

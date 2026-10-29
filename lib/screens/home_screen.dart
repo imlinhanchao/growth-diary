@@ -9,6 +9,7 @@ import '../services/media_upload_service.dart';
 import '../services/entry_creation_service.dart';
 import '../utils/age_calculator.dart';
 import '../utils/file_utils.dart' as file_utils;
+import '../utils/device_type.dart';
 import '../services/local_storage_service.dart';
 import '../services/qr_service.dart';
 import 'settings_screen.dart';
@@ -20,6 +21,7 @@ import '../components/pregnancy_label.dart';
 import '../components/current_month_separator.dart';
 import '../components/group_separator.dart';
 import '../components/timeline_item.dart';
+import 'entry_detail_screen.dart';
 import 'qr_scanner_screen.dart';
 
 class UploadProgressData {
@@ -71,6 +73,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   static const int _pageSize = 10;
   DateTime? _targetMonth;
+
+  /// 宽屏双栏模式下当前选中的条目（右侧详情面板显示）
+  DiaryEntry? _selectedEntry;
 
   late EntryCreationService _entryCreationService;
 
@@ -708,11 +713,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildSliverAppBar() {
     final bool showExpanded = _coverImageData != null || _isLoadingCoverImage;
+    // 宽屏（平板/TV）左栏宽度有限，封面图展开没有意义；且只读模式无需上传进度
+    final bool isWide = DeviceType.isWideScreen(context);
 
     return SliverAppBar(
-      expandedHeight: showExpanded ? 260.0 : null,
+      // 宽屏不展开封面图（左栏太窄，背景图视觉效果差）
+      expandedHeight: (!isWide && showExpanded) ? 260.0 : null,
       pinned: true,
-      stretch: true,
+      stretch: !isWide,
       backgroundColor: Colors.pink,
       elevation: 0,
       scrolledUnderElevation: 0,
@@ -746,7 +754,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ),
-              if (progressData.hasActiveTasks) ...[
+              // 宽屏只读模式不显示上传进度
+              if (!isWide && progressData.hasActiveTasks) ...[
                 const SizedBox(width: 12),
                 Container(
                   padding:
@@ -839,52 +848,160 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           },
         ),
       ],
-      flexibleSpace: FlexibleSpaceBar(
-        stretchModes: const [StretchMode.zoomBackground],
-        background: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.pink.shade300, Colors.pink.shade500],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+      // 宽屏不展示可伸缩背景
+      flexibleSpace: isWide
+          ? null
+          : FlexibleSpaceBar(
+              stretchModes: const [StretchMode.zoomBackground],
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.pink.shade300, Colors.pink.shade500],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                  ),
+                  if (showExpanded && _coverImageData != null) ...[
+                    Image.memory(
+                      _coverImageData!,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                    ),
+                    // 蒙版
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 00.5),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                    ),
+                  ] else if (showExpanded && _isLoadingCoverImage)
+                    const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    ),
+                ],
               ),
             ),
-            if (showExpanded && _coverImageData != null) ...[
-              Image.memory(
-                _coverImageData!,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isWide = DeviceType.isWideScreen(context);
+    if (isWide) {
+      return _buildWideLayout(context);
+    }
+    return _buildPhoneLayout(context);
+  }
+
+  // ──────────────────────────────────────────
+  // 宽屏（平板 / TV）双栏布局
+  // ──────────────────────────────────────────
+  Widget _buildWideLayout(BuildContext context) {
+    final leftWidth = DeviceType.timelineColumnWidth(context);
+    // 外层仅作布局容器，drawer 在内层 _buildTimelineColumn 的 Scaffold 里
+    return Scaffold(
+      body: Row(
+        children: [
+          // ── 左栏：时间轴列表 ──
+          SizedBox(
+            width: leftWidth,
+            child: _buildTimelineColumn(),
+          ),
+          // 分隔线
+          VerticalDivider(
+            width: 1,
+            thickness: 1,
+            color: Colors.grey.shade200,
+          ),
+          // ── 右栏：详情面板 ──
+          Expanded(
+            child: _selectedEntry != null
+                ? EntryDetailScreen(
+                    key: ValueKey(_selectedEntry!.id),
+                    entry: _selectedEntry!,
+                    config: currentConfig,
+                    cloudService: widget.cloudService,
+                    // 宽屏只读：不传入编辑/删除回调
+                    onEntryUpdated: null,
+                    onConfigChanged: null,
+                    isEmbedded: true,
+                  )
+                : _buildDetailPlaceholder(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 宽屏右侧占位页面（未选中任何条目时显示）
+  Widget _buildDetailPlaceholder() {
+    return Container(
+      color: Colors.grey.shade50,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.auto_stories_outlined,
+                size: 72, color: Colors.pink.shade100),
+            const SizedBox(height: 16),
+            Text(
+              '选择一条记录查看详情',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey.shade400,
+                fontWeight: FontWeight.w500,
               ),
-              // 蒙版
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 00.5),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-              ),
-            ] else if (showExpanded && _isLoadingCoverImage)
-              const Center(
-                child: CircularProgressIndicator(color: Colors.white),
-              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  /// 左侧时间轴列（宽屏模式）
+  Widget _buildTimelineColumn() {
+    // 宽屏模式下，drawer 由外层 _buildWideLayout 的 Scaffold 管理
+    // 这里只做时间轴内容区域
+    return Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: _onRefresh,
+          child: CustomScrollView(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              _buildSliverAppBar(),
+              if (_isLoading)
+                const SliverFillRemaining(
+                    child: Center(child: CircularProgressIndicator()))
+              else if (_errorMessage != null)
+                SliverFillRemaining(child: _buildErrorState())
+              else if (_entries.isEmpty)
+                SliverFillRemaining(child: _buildEmptyState())
+              else
+                _buildTimelineSliver(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ──────────────────────────────────────────
+  // 手机单栏布局（原有逻辑）
+  // ──────────────────────────────────────────
+  Widget _buildPhoneLayout(BuildContext context) {
     return Scaffold(
       drawer: _buildConfigDrawer(),
       endDrawer: _buildTimelineDrawer(),
@@ -1276,6 +1393,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onConfigChanged: _handleConfigChanged,
         thumbnailCache: _thumbnailCache,
         thumbnailFutures: _thumbnailFutures,
+        // 宽屏模式：点击条目更新右侧详情面板，不 push 新路由
+        onTapOverride: DeviceType.isWideScreen(context)
+            ? (e) => setState(() => _selectedEntry = e)
+            : null,
+        selectedInWideMode: DeviceType.isWideScreen(context) &&
+            _selectedEntry?.id == entry.id,
       ));
       itemIndexMap[DateTime(entry.date.year, entry.date.month)] =
           items.length - 1;
@@ -1364,10 +1487,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _targetMonth = null; // 重置
     }
 
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) => items[index],
-        childCount: items.length,
+    final isWide = DeviceType.isWideScreen(context);
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isWide ? 12 : 8,
+        vertical: 8,
+      ),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => items[index],
+          childCount: items.length,
+        ),
       ),
     );
   }
@@ -1783,7 +1913,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const QRScannerScreen(),
+        builder: (context) => QRScannerScreen(currentConfig: currentConfig),
       ),
     );
 
