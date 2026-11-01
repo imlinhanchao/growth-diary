@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'dart:typed_data';
 import 'dart:async';
@@ -23,6 +24,9 @@ import '../components/group_separator.dart';
 import '../components/timeline_item.dart';
 import 'entry_detail_screen.dart';
 import 'qr_scanner_screen.dart';
+import '../components/full_screen_image_view.dart';
+import '../components/full_screen_video_player.dart';
+import 'tv_slideshow_screen.dart';
 
 class UploadProgressData {
   final bool hasActiveTasks;
@@ -66,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isExpanded = false;
   final ValueNotifier<UploadProgressData> _uploadProgressNotifier =
       ValueNotifier(UploadProgressData(false, ''));
+  int _tvFilterIndex = 0; // 0: 全部, 1: 照片, 2: 视频
 
   late Map<String, AppConfig> configs;
   late String currentConfigId;
@@ -78,6 +83,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   DiaryEntry? _selectedEntry;
 
   late EntryCreationService _entryCreationService;
+  static const MethodChannel _deviceChannel = MethodChannel('com.growth_diary/device');
+  bool _isOpeningSettings = false;
+
+  void _openSettings() async {
+    if (!mounted || _isOpeningSettings) return;
+    _isOpeningSettings = true;
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SettingsScreen(
+            config: currentConfig,
+            cloudService: widget.cloudService,
+            onConfigChanged: (newConfig) async {
+              final updatedConfigs = await widget.localStorage.loadAllConfigs();
+              final currentId = await widget.localStorage.getCurrentConfigId();
+              setState(() {
+                configs = updatedConfigs;
+                currentConfigId = currentId ?? '';
+                currentConfig = configs[currentConfigId] ?? configs.values.first;
+              });
+              await _handleConfigChanged(newConfig);
+            },
+          ),
+        ),
+      );
+    } finally {
+      _isOpeningSettings = false;
+    }
+  }
+
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.settings ||
+          event.logicalKey == LogicalKeyboardKey.contextMenu ||
+          event.logicalKey.keyId == 176 ||
+          event.logicalKey.keyId == 82 ||
+          event.logicalKey.keyLabel.toLowerCase() == 'settings') {
+        _openSettings();
+        return true;
+      }
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -87,6 +136,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     currentConfig = configs[currentConfigId]!;
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
+
+    _deviceChannel.setMethodCallHandler((call) async {
+      if (call.method == 'openSettings') {
+        _openSettings();
+      }
+    });
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
 
     // 初始化WebDAV服务，为当前宝宝创建文件夹
     widget.cloudService.initialize(currentConfig).then((_) {
@@ -154,6 +210,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
+    _deviceChannel.setMethodCallHandler(null);
     _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     MediaUploadService.removeUploadProgressCallback();
@@ -812,6 +870,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           builder: (context) => IconButton(
             icon: const Icon(Icons.calendar_month),
             color: Colors.white,
+            focusColor: Colors.white.withValues(alpha: 0.35),
+            tooltip: '日历',
             onPressed: () {
               Scaffold.of(context).openEndDrawer();
             },
@@ -820,32 +880,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         IconButton(
           icon: const Icon(Icons.settings),
           color: Colors.white,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => SettingsScreen(
-                  config: currentConfig,
-                  cloudService: widget.cloudService,
-                  onConfigChanged: (newConfig) async {
-                    // 重新加载所有配置，以确保删除的配置被正确移除
-                    final updatedConfigs =
-                        await widget.localStorage.loadAllConfigs();
-                    final currentId =
-                        await widget.localStorage.getCurrentConfigId();
-                    setState(() {
-                      configs = updatedConfigs;
-                      currentConfigId = currentId ?? '';
-                      currentConfig =
-                          configs[currentConfigId] ?? configs.values.first;
-                    });
-                    // 切换到新配置，确保界面更新
-                    await _handleConfigChanged(newConfig);
-                  },
-                ),
-              ),
-            );
-          },
+          focusColor: Colors.white.withValues(alpha: 0.35),
+          tooltip: '设置',
+          onPressed: _openSettings,
         ),
       ],
       // 宽屏不展示可伸缩背景
@@ -897,6 +934,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (DeviceType.isTV(context)) {
+      return _buildTvLayout(context);
+    }
     final isWide = DeviceType.isWideScreen(context);
     if (isWide) {
       return _buildWideLayout(context);
@@ -1026,10 +1066,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
-          Positioned(
-            bottom: 16.0,
-            right: 16.0,
-            child: Column(
+          if (!DeviceType.isTV(context))
+            Positioned(
+              bottom: 16.0,
+              right: 16.0,
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -2217,4 +2258,935 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
   }
+
+  // ──────────────────────────────────────────
+  // 电视（Android TV）全屏画廊模式
+  // ──────────────────────────────────────────
+
+  List<TvMediaItem> _getTvMediaItems() {
+    final List<TvMediaItem> items = [];
+    for (final entry in _entries) {
+      if (_tvFilterIndex == 0 || _tvFilterIndex == 1) {
+        for (int i = 0; i < entry.imagePaths.length; i++) {
+          final thumb = i < entry.imageThumbnails.length
+              ? entry.imageThumbnails[i]
+              : entry.imagePaths[i];
+          items.add(TvMediaItem(
+            type: TvMediaType.photo,
+            mediaPath: entry.imagePaths[i],
+            thumbnailPath: thumb,
+            entry: entry,
+            indexInEntry: i,
+          ));
+        }
+      }
+      if (_tvFilterIndex == 0 || _tvFilterIndex == 2) {
+        for (int i = 0; i < entry.videoPaths.length; i++) {
+          final thumb = i < entry.videoThumbnails.length
+              ? entry.videoThumbnails[i]
+              : '';
+          items.add(TvMediaItem(
+            type: TvMediaType.video,
+            mediaPath: entry.videoPaths[i],
+            thumbnailPath: thumb,
+            entry: entry,
+            indexInEntry: i,
+          ));
+        }
+      }
+    }
+    return items;
+  }
+
+  Future<Uint8List?> _getTvThumbnailData(String path) async {
+    if (path.isEmpty) return null;
+    if (_thumbnailCache.containsKey(path)) {
+      return _thumbnailCache[path];
+    }
+    if (_thumbnailFutures.containsKey(path)) {
+      return _thumbnailFutures[path];
+    }
+    final future = _loadTvThumbnailData(path);
+    _thumbnailFutures[path] = future;
+    try {
+      final data = await future;
+      _thumbnailCache[path] = data;
+      return data;
+    } finally {
+      _thumbnailFutures.remove(path);
+    }
+  }
+
+  Future<Uint8List?> _loadTvThumbnailData(String path) async {
+    try {
+      final data = await widget.cloudService.downloadFile(path);
+      return data;
+    } catch (e) {
+      debugPrint('Error loading TV thumbnail $path: $e');
+      return null;
+    }
+  }
+
+  void _onTvMediaClicked(TvMediaItem item) {
+    final allItems = _getTvMediaItems();
+    if (item.type == TvMediaType.photo) {
+      final photoItems =
+          allItems.where((m) => m.type == TvMediaType.photo).toList();
+      final photoPaths = photoItems.map((m) => m.mediaPath).toList();
+      final initialIndex =
+          photoItems.indexWhere((m) => m.mediaPath == item.mediaPath);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FullScreenImageView(
+            imagePaths: photoPaths,
+            webdavService: widget.cloudService,
+            initialIndex: initialIndex >= 0 ? initialIndex : 0,
+            onSetAsCoverImage: (path) async {
+              currentConfig.babyCoverImagePath = path;
+              await _handleConfigChanged(currentConfig);
+            },
+          ),
+        ),
+      );
+    } else {
+      final videoItems =
+          allItems.where((m) => m.type == TvMediaType.video).toList();
+      final videoPaths = videoItems.map((m) => m.mediaPath).toList();
+      final initialIndex =
+          videoItems.indexWhere((m) => m.mediaPath == item.mediaPath);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FullScreenVideoPlayer(
+            videoPaths: videoPaths,
+            webdavService: widget.cloudService,
+            initialIndex: initialIndex >= 0 ? initialIndex : 0,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _startTvSlideshow() {
+    final photoPaths = <String>[];
+    for (final entry in _entries) {
+      photoPaths.addAll(entry.imagePaths);
+    }
+    if (photoPaths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂无可播放的照片')),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TvSlideshowScreen(
+          imagePaths: photoPaths,
+          cloudService: widget.cloudService,
+          config: currentConfig,
+          entries: _entries,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTvLayout(BuildContext context) {
+    final mediaItems = _getTvMediaItems();
+    final totalPhotos =
+        _entries.fold<int>(0, (sum, e) => sum + e.imagePaths.length);
+    final totalVideos =
+        _entries.fold<int>(0, (sum, e) => sum + e.videoPaths.length);
+    final totalAll = totalPhotos + totalVideos;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF141416),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildTvHeader(
+              totalAll: totalAll,
+              totalPhotos: totalPhotos,
+              totalVideos: totalVideos,
+            ),
+            Expanded(
+              child: _isLoading
+                  ? _buildTvLoadingState()
+                  : _errorMessage != null
+                      ? _buildTvErrorState()
+                      : mediaItems.isEmpty
+                          ? _buildTvEmptyState()
+                          : _buildTvMediaGrid(mediaItems),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTvHeader({
+    required int totalAll,
+    required int totalPhotos,
+    required int totalVideos,
+  }) {
+    final babyName = currentConfig.childName.isNotEmpty
+        ? currentConfig.childName
+        : '宝宝成长相册';
+    final ageText = currentConfig.childBirthDate != null
+        ? AgeCalculator.formatAgeLabel(
+            AgeCalculator.calculateAgeInMonths(
+                currentConfig.childBirthDate!, DateTime.now()))
+        : '';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1F24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.pink.shade900,
+            backgroundImage: _coverImageData != null
+                ? MemoryImage(_coverImageData!)
+                : null,
+            child: _coverImageData == null
+                ? const Icon(Icons.child_care_rounded,
+                    color: Colors.white, size: 26)
+                : null,
+          ),
+          const SizedBox(width: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                babyName,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              if (ageText.isNotEmpty)
+                Text(
+                  ageText,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.pink.shade300,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 36),
+          _TvFilterTab(
+            label: '全部',
+            icon: Icons.grid_view_rounded,
+            count: totalAll,
+            isSelected: _tvFilterIndex == 0,
+            onTap: () => setState(() => _tvFilterIndex = 0),
+          ),
+          const SizedBox(width: 10),
+          _TvFilterTab(
+            label: '照片',
+            icon: Icons.photo_library_rounded,
+            count: totalPhotos,
+            isSelected: _tvFilterIndex == 1,
+            onTap: () => setState(() => _tvFilterIndex = 1),
+          ),
+          const SizedBox(width: 10),
+          _TvFilterTab(
+            label: '视频',
+            icon: Icons.videocam_rounded,
+            count: totalVideos,
+            isSelected: _tvFilterIndex == 2,
+            onTap: () => setState(() => _tvFilterIndex = 2),
+          ),
+          const Spacer(),
+          _TvFocusableButton(
+            icon: Icons.slideshow_rounded,
+            label: '幻灯片播放',
+            isPrimary: true,
+            onTap: _startTvSlideshow,
+          ),
+          const SizedBox(width: 12),
+          _TvFocusableButton(
+            icon: Icons.refresh_rounded,
+            label: '刷新',
+            onTap: _onRefresh,
+          ),
+          const SizedBox(width: 12),
+          _TvFocusableButton(
+            icon: Icons.settings_rounded,
+            label: '设置',
+            onTap: _openSettings,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvMediaGrid(List<TvMediaItem> items) {
+    return GridView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        crossAxisSpacing: 18,
+        mainAxisSpacing: 18,
+        childAspectRatio: 1.25,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return _TvMediaCard(
+          key: ValueKey('${item.type}_${item.mediaPath}_$index'),
+          item: item,
+          config: currentConfig,
+          getThumbnail: _getTvThumbnailData,
+          onTap: () => _onTvMediaClicked(item),
+        );
+      },
+    );
+  }
+
+  Widget _buildTvLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.pink.shade400),
+            strokeWidth: 3.5,
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '正在加载宝宝的照片与视频...',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.white70,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 64, color: Colors.orange.shade300),
+          const SizedBox(height: 16),
+          const Text(
+            '加载失败',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _errorMessage ?? '网络连接或云存储配置异常',
+            style: const TextStyle(fontSize: 14, color: Colors.white60),
+          ),
+          const SizedBox(height: 28),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _TvFocusableButton(
+                icon: Icons.refresh_rounded,
+                label: '重试',
+                isPrimary: true,
+                onTap: _onRefresh,
+              ),
+              const SizedBox(width: 16),
+              _TvFocusableButton(
+                icon: Icons.settings_rounded,
+                label: '检查设置',
+                onTap: _openSettings,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvEmptyState() {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 560),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.photo_library_outlined,
+                size: 58,
+                color: Colors.pink.shade300,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '开启大屏温馨回忆',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '在手机端记录宝宝的照片与视频并同步到云端后，\n即可在电视大屏上沉浸式重温每一个珍贵瞬间。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.white70,
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _TvFocusableButton(
+                  icon: Icons.refresh_rounded,
+                  label: '刷新同步',
+                  isPrimary: true,
+                  onTap: _onRefresh,
+                ),
+                const SizedBox(width: 20),
+                _TvFocusableButton(
+                  icon: Icons.settings_rounded,
+                  label: '云存储设置',
+                  onTap: _openSettings,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
+// ──────────────────────────────────────────
+// TV 专用数据模型与交互组件
+// ──────────────────────────────────────────
+
+enum TvMediaType { photo, video }
+
+class TvMediaItem {
+  final TvMediaType type;
+  final String mediaPath;
+  final String thumbnailPath;
+  final DiaryEntry entry;
+  final int indexInEntry;
+
+  TvMediaItem({
+    required this.type,
+    required this.mediaPath,
+    required this.thumbnailPath,
+    required this.entry,
+    required this.indexInEntry,
+  });
+}
+
+class _TvMediaCard extends StatefulWidget {
+  final TvMediaItem item;
+  final AppConfig config;
+  final Future<Uint8List?> Function(String) getThumbnail;
+  final VoidCallback onTap;
+
+  const _TvMediaCard({
+    super.key,
+    required this.item,
+    required this.config,
+    required this.getThumbnail,
+    required this.onTap,
+  });
+
+  @override
+  State<_TvMediaCard> createState() => _TvMediaCardState();
+}
+
+class _TvMediaCardState extends State<_TvMediaCard> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isFocused = _focusNode.hasFocus;
+        });
+        if (_focusNode.hasFocus) {
+          Scrollable.ensureVisible(
+            context,
+            alignment: 0.5,
+            duration: const Duration(milliseconds: 250),
+          );
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = widget.item.entry;
+    final isVideo = widget.item.type == TvMediaType.video;
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.08 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: _isFocused ? Colors.pinkAccent : Colors.white12,
+                width: _isFocused ? 3.5 : 1.0,
+              ),
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withOpacity(0.55),
+                        blurRadius: 18,
+                        spreadRadius: 3,
+                      ),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(13),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 背景底色
+                  Container(color: const Color(0xFF22242B)),
+
+                  // 缩略图
+                  FutureBuilder<Uint8List?>(
+                    future: widget.getThumbnail(widget.item.thumbnailPath),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white24,
+                          ),
+                        );
+                      }
+                      if (snapshot.hasData && snapshot.data != null) {
+                        return Image.memory(
+                          snapshot.data!,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                        );
+                      }
+                      return Center(
+                        child: Icon(
+                          isVideo ? Icons.videocam : Icons.photo,
+                          size: 40,
+                          color: Colors.white24,
+                        ),
+                      );
+                    },
+                  ),
+
+                  // 渐变蒙层
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.15),
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.85),
+                          ],
+                          stops: const [0.0, 0.45, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // 视频播放图标
+                  if (isVideo)
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.45),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white54, width: 1.5),
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          size: 32,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                  // 视频角标
+                  if (isVideo)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.videocam, size: 12, color: Colors.white),
+                            SizedBox(width: 4),
+                            Text(
+                              '视频',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // 底部文字信息
+                  Positioned(
+                    left: 10,
+                    right: 10,
+                    bottom: 8,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              entry.getSimplifiedAgeLabel(widget.config),
+                              style: TextStyle(
+                                color: Colors.pink.shade200,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}-${entry.date.day.toString().padLeft(2, '0')}',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (entry.title.isNotEmpty ||
+                            entry.description.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            entry.title.isNotEmpty
+                                ? entry.title
+                                : entry.description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvFocusableButton extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool isPrimary;
+
+  const _TvFocusableButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isPrimary = false,
+  });
+
+  @override
+  State<_TvFocusableButton> createState() => _TvFocusableButtonState();
+}
+
+class _TvFocusableButtonState extends State<_TvFocusableButton> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = widget.isPrimary
+        ? (_isFocused ? Colors.pink.shade600 : Colors.pink.shade500)
+        : (_isFocused ? Colors.white.withOpacity(0.25) : Colors.white.withOpacity(0.12));
+    final fgColor = Colors.white;
+    final borderColor = widget.isPrimary
+        ? (_isFocused ? Colors.pink.shade300 : Colors.transparent)
+        : (_isFocused ? Colors.pink.shade300 : Colors.transparent);
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.08 : 1.0,
+          duration: const Duration(milliseconds: 180),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor, width: _isFocused ? 2.5 : 1),
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withOpacity(0.45),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(widget.icon, size: 18, color: fgColor),
+                const SizedBox(width: 8),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: fgColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvFilterTab extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final int count;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TvFilterTab({
+    required this.label,
+    required this.icon,
+    required this.count,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  State<_TvFilterTab> createState() => _TvFilterTabState();
+}
+
+class _TvFilterTabState extends State<_TvFilterTab> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg;
+    Color fg;
+    Border border;
+
+    if (widget.isSelected) {
+      bg = _isFocused ? Colors.pink.shade600 : Colors.pink.shade500;
+      fg = Colors.white;
+      border = Border.all(
+          color: _isFocused ? Colors.pink.shade200 : Colors.transparent,
+          width: 2);
+    } else {
+      bg = _isFocused
+          ? Colors.white.withOpacity(0.2)
+          : Colors.white.withOpacity(0.08);
+      fg = _isFocused ? Colors.white : Colors.white70;
+      border = Border.all(
+          color: _isFocused ? Colors.pink.shade300 : Colors.transparent,
+          width: 2);
+    }
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.08 : 1.0,
+          duration: const Duration(milliseconds: 180),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(20),
+              border: border,
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withOpacity(0.4),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      )
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(widget.icon, size: 16, color: fg),
+                const SizedBox(width: 6),
+                Text(
+                  '${widget.label} (${widget.count})',
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 13,
+                    fontWeight: widget.isSelected
+                        ? FontWeight.bold
+                        : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
@@ -452,61 +453,184 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     Color? textColor,
     bool showTrailing = true,
     Color? backgroundColor,
+    bool autofocus = false,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: backgroundColor ?? iconColor.withValues(alpha: 00.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                        color: textColor ?? Colors.black87,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (showTrailing)
-                Icon(Icons.chevron_right, color: Colors.grey[300], size: 20),
-            ],
-          ),
-        ),
-      ),
+    return _AppSettingsTile(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      onTap: onTap,
+      iconColor: iconColor,
+      textColor: textColor,
+      showTrailing: showTrailing,
+      backgroundColor: backgroundColor,
+      autofocus: autofocus,
     );
   }
 
   Widget _buildDivider() {
     return Divider(
         height: 1, thickness: 0.5, indent: 64, color: Colors.grey[100]);
+  }
+}
+
+class _AppSettingsTile extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback? onTap;
+  final Color iconColor;
+  final Color? textColor;
+  final bool showTrailing;
+  final Color? backgroundColor;
+  final bool autofocus;
+
+  const _AppSettingsTile({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.onTap,
+    this.iconColor = Colors.grey,
+    this.textColor,
+    this.showTrailing = true,
+    this.backgroundColor,
+    this.autofocus = false,
+  });
+
+  @override
+  State<_AppSettingsTile> createState() => _AppSettingsTileState();
+}
+
+class _AppSettingsTileState extends State<_AppSettingsTile> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) {
+        setState(() => _isFocused = _focusNode.hasFocus);
+        if (_focusNode.hasFocus) {
+          Scrollable.ensureVisible(
+            context,
+            alignment: 0.5,
+            duration: const Duration(milliseconds: 200),
+          );
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: widget.autofocus,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          if (widget.onTap != null) {
+            widget.onTap!();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.025 : 1.0,
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _isFocused ? const Color(0xFFFFF0F5) : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _isFocused ? Colors.pink.shade400 : Colors.transparent,
+                width: 3.0,
+              ),
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withValues(alpha: 0.4),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _isFocused
+                        ? Colors.pink.shade500
+                        : (widget.backgroundColor ??
+                            widget.iconColor.withValues(alpha: 0.1)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    widget.icon,
+                    color: _isFocused ? Colors.white : widget.iconColor,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: TextStyle(
+                          fontWeight:
+                              _isFocused ? FontWeight.bold : FontWeight.w600,
+                          fontSize: 16,
+                          color: _isFocused
+                              ? Colors.pink.shade900
+                              : (widget.textColor ?? Colors.black87),
+                        ),
+                      ),
+                      if (widget.subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle!,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _isFocused
+                                ? Colors.pink.shade700
+                                : Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (widget.showTrailing)
+                  Icon(
+                    Icons.chevron_right,
+                    color: _isFocused ? Colors.pink.shade500 : Colors.grey[300],
+                    size: 20,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

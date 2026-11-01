@@ -74,6 +74,9 @@ class TvPairingServer {
 
   /// 获取本机的局域网 IPv4 地址
   static Future<String?> getLocalIp() async {
+    // 模拟器环境下的宿主机局域网 IP（用于调试端口转发）
+    const emulatorHostIp = "192.168.50.4";
+
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
@@ -86,6 +89,9 @@ class TvPairingServer {
         if (name.contains('wlan') || name.contains('eth') || name.contains('en')) {
           for (var addr in interface.addresses) {
             if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
+              if (addr.address.startsWith('10.0.2.') && emulatorHostIp.isNotEmpty) {
+                return emulatorHostIp;
+              }
               return addr.address;
             }
           }
@@ -96,6 +102,9 @@ class TvPairingServer {
       for (var interface in interfaces) {
         for (var addr in interface.addresses) {
           if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
+            if (addr.address.startsWith('10.0.2.') && emulatorHostIp.isNotEmpty) {
+              return emulatorHostIp;
+            }
             return addr.address;
           }
         }
@@ -103,7 +112,7 @@ class TvPairingServer {
     } catch (e) {
       debugPrint('获取本机 IP 失败: $e');
     }
-    return null;
+    return emulatorHostIp.isNotEmpty ? emulatorHostIp : null;
   }
 
   /// 启动配对服务
@@ -124,12 +133,21 @@ class TvPairingServer {
     final token = List.generate(8, (_) => rand.nextInt(10)).join();
 
     try {
-      // 绑定任意端口 (port = 0 代表由系统分配空闲端口)
-      final server = await HttpServer.bind(
-        InternetAddress.anyIPv4,
-        0,
-        shared: true,
-      );
+      // 优先尝试绑定 8888 端口（方便 adb forward tcp:8888 tcp:8888），已被占用则随机分配空闲端口
+      HttpServer server;
+      try {
+        server = await HttpServer.bind(
+          InternetAddress.anyIPv4,
+          8888,
+          shared: true,
+        );
+      } catch (_) {
+        server = await HttpServer.bind(
+          InternetAddress.anyIPv4,
+          0,
+          shared: true,
+        );
+      }
 
       _server = server;
       _ip = localIp;

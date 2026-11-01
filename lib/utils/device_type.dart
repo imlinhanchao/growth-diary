@@ -16,10 +16,18 @@ class DeviceType {
     final size = MediaQuery.sizeOf(context);
     final shortestSide = size.shortestSide;
 
-    // Android TV / 大屏设备：最短边 >= 540 且最长边 >= 960
-    if (shortestSide >= 540 && size.longestSide >= 960) {
-      // 进一步区分 TV（极宽）和平板
-      if (size.width >= 1200 && size.height <= 800) {
+    // Android TV / 电视大屏：
+    // Android TV 官方标准逻辑分辨率基准通常为 960x540 (16:9 比例)
+    // 宽比高大且横向宽高比接近或大于 16:9 (aspectRatio >= 1.7)，且最短边 >= 480
+    if (size.width > size.height &&
+        size.width / size.height >= 1.7 &&
+        shortestSide >= 480) {
+      return DeviceFormFactor.tv;
+    }
+
+    // Android TV / 大屏设备补充判定：最短边 >= 500 且最长边 >= 900 且为横屏宽屏
+    if (shortestSide >= 500 && size.longestSide >= 900 && size.width > size.height) {
+      if (size.width / size.height >= 1.65) {
         return DeviceFormFactor.tv;
       }
       return DeviceFormFactor.tablet;

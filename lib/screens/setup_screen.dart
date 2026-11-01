@@ -34,7 +34,6 @@ class _SetupScreenState extends State<SetupScreen> {
   final TvPairingServer _pairingServer = TvPairingServer();
   TvPairingInfo? _pairingInfo;
   bool _isStartingPairingServer = false;
-  bool _showManualFormOnTv = false; // TV 模式下是否显示手动输入表单
 
   @override
   void initState() {
@@ -168,15 +167,17 @@ class _SetupScreenState extends State<SetupScreen> {
       final webdavService = WebDAVService();
       final localStorage = widget.localStorage ?? LocalStorageService();
 
-      // Initialize WebDAV with imported config
-      await webdavService.initialize(importedConfig);
-
-      // Save config to WebDAV
-      await webdavService.saveConfig(importedConfig);
-
-      // Save config locally
+      // 先保存到本地存储，确保配置不丢失
       await localStorage.saveConfig(importedConfig);
       await localStorage.setCurrentConfigId(importedConfig.id);
+
+      // 尝试初始化并同步到云端
+      try {
+        await webdavService.initialize(importedConfig);
+        await webdavService.saveConfig(importedConfig);
+      } catch (e) {
+        debugPrint('WebDAV initial sync warning: $e');
+      }
 
       if (!mounted) return;
 
@@ -478,9 +479,296 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
+  /// Android TV 专属左右分栏极简配对界面（免滚动直接显示二维码）
+  Widget _buildTvSetupView(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 960),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 48.0, vertical: 24.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // ── 左侧：品牌信息与操作步骤 ──
+              Expanded(
+                flex: 5,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 应用图标与标题
+                    Row(
+                      children: [
+                        Image.asset(
+                          'assets/images/foreground.png',
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.contain,
+                        ),
+                        const SizedBox(width: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '成长日记 TV版',
+                              style: TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '记录宝宝的每一个珍贵瞬间',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+
+                    // 配对步骤引导卡片
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.pink.shade100,
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.sync_alt,
+                                color: Colors.pink.shade600,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '扫码同步步骤',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.pink.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _buildStepRow('1', '确保手机与电视连接在同一个家庭 Wi-Fi'),
+                          const SizedBox(height: 10),
+                          _buildStepRow('2', '打开手机版《成长日记》APP'),
+                          const SizedBox(height: 10),
+                          _buildStepRow(
+                            '3',
+                            '进入【设置】->【投送配置到电视】，扫描右侧二维码',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 当前网络状态条
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.pink.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.wifi,
+                            color: Colors.pink.shade700,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '电视 IP: ${_pairingInfo?.ip ?? "获取中..."} (需在同一 Wi-Fi)',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.pink.shade800,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 44),
+
+              // ── 右侧：扫码卡片（直接完整展示二维码，无需滚动） ──
+              Expanded(
+                flex: 4,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 20,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.pink.shade100,
+                        width: 2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.pink.shade100.withValues(alpha: 0.3),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.qr_code_scanner,
+                              color: Colors.pink.shade600,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              '手机扫码，一键同步',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+
+                        if (_isStartingPairingServer) ...[
+                          const SizedBox(
+                            height: 200,
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(
+                                    color: Colors.pink,
+                                  ),
+                                  SizedBox(height: 16),
+                                  Text('正在启动电视配对服务...'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ] else if (_pairingInfo == null) ...[
+                          SizedBox(
+                            height: 200,
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.wifi_off,
+                                    size: 48,
+                                    color: Colors.orange,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  const Text(
+                                    '未能获取局域网 IP',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: _startPairingServer,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('重试连接'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.pink.shade100,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: QrImageView(
+                              data: _pairingInfo!.toQrString(),
+                              version: QrVersions.auto,
+                              size: 190,
+                              dataModuleStyle: const QrDataModuleStyle(
+                                color: Colors.pink,
+                              ),
+                              eyeStyle: const QrEyeStyle(
+                                color: Colors.pink,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            '即扫即传，自动完成设置',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isTV = DeviceType.isTV(context);
+    if (DeviceType.isTV(context)) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: _buildTvSetupView(context),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -503,8 +791,8 @@ class _SetupScreenState extends State<SetupScreen> {
                 children: [
                   Image.asset(
                     'assets/images/foreground.png',
-                    width: isTV ? 80 : 100,
-                    height: isTV ? 80 : 100,
+                    width: 100,
+                    height: 100,
                     fit: BoxFit.contain,
                   ),
                   const SizedBox(height: 16),
@@ -527,71 +815,40 @@ class _SetupScreenState extends State<SetupScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ── Android TV 模式：优先展示扫码配对大卡片 ──
-                  if (isTV) ...[
-                    _buildTvPairingCard(context),
-                    const SizedBox(height: 24),
-                    Center(
-                      child: TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _showManualFormOnTv = !_showManualFormOnTv;
-                          });
-                        },
-                        icon: Icon(
-                          _showManualFormOnTv
-                              ? Icons.keyboard_arrow_up
-                              : Icons.keyboard_arrow_down,
-                        ),
-                        label: Text(
-                          _showManualFormOnTv
-                              ? '隐藏遥控器手动输入'
-                              : '使用遥控器手动录入配置',
-                          style: TextStyle(color: Colors.grey.shade700),
+                  // ── 手机/平板模式：支持扫码导入与手动录入 ──
+                  OutlinedButton.icon(
+                      onPressed: _scanQRCode,
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('导入配置 (扫码)'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.pink,
+                        side: const BorderSide(color: Colors.pink),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 12, horizontal: 24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),
-                    if (!_showManualFormOnTv) const SizedBox(height: 40),
-                  ],
-
-                  // ── 手机/平板模式 或 TV展开手动录入 ──
-                  if (!isTV || _showManualFormOnTv) ...[
-                    if (!isTV) ...[
-                      // 手机/平板下的导入配置按钮
-                      OutlinedButton.icon(
-                        onPressed: _scanQRCode,
-                        icon: const Icon(Icons.qr_code_scanner),
-                        label: const Text('导入配置 (扫码)'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.pink,
-                          side: const BorderSide(color: Colors.pink),
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 12, horizontal: 24),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                    const SizedBox(height: 16),
+                    // 也可以在手机展开电视配对二维码（互传）
+                    ExpansionTile(
+                      title: const Text('作为接收端（显示局域网投送二维码）'),
+                      leading: const Icon(Icons.cast, color: Colors.pink),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: _buildTvPairingCard(context),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      // 也可以在手机展开电视配对二维码（互传）
-                      ExpansionTile(
-                        title: const Text('作为接收端（显示局域网投送二维码）'),
-                        leading: const Icon(Icons.cast, color: Colors.pink),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: _buildTvPairingCard(context),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        '或手动录入',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      '或手动录入',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
 
                     Container(
                       padding: const EdgeInsets.all(4),
@@ -823,7 +1080,6 @@ class _SetupScreenState extends State<SetupScreen> {
                               style: TextStyle(fontSize: 16),
                             ),
                     ),
-                  ],
                 ],
               ),
             ),
