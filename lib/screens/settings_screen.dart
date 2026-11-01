@@ -223,6 +223,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _showTvSwitchBabyDialog() async {
+    final allConfigs = await _localStorage.loadAllConfigs();
+    if (!mounted) return;
+    final currentId = await _localStorage.getCurrentConfigId();
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1E1F24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side:
+                BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 1.5),
+          ),
+          child: Container(
+            width: 600,
+            height: 440,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.switch_account_rounded,
+                        color: Colors.pink.shade300, size: 26),
+                    const SizedBox(width: 12),
+                    const Text(
+                      '切换宝宝档案',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Text(
+                      '按遥控器方向键选择',
+                      style: TextStyle(color: Colors.white38, fontSize: 13),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: allConfigs.values.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (c, idx) {
+                      final itemConfig = allConfigs.values.elementAt(idx);
+                      final isCurrent =
+                          itemConfig.id == (currentId ?? _config.id);
+                      final babyName = itemConfig.babyName.isNotEmpty
+                          ? itemConfig.babyName
+                          : '宝宝';
+                      final birthStr = itemConfig.babyBirthDate != null
+                          ? '${itemConfig.babyBirthDate!.year}-${itemConfig.babyBirthDate!.month.toString().padLeft(2, '0')}-${itemConfig.babyBirthDate!.day.toString().padLeft(2, '0')}'
+                          : '';
+
+                      return _TvSettingCard(
+                        icon: Icons.child_care_rounded,
+                        title: babyName,
+                        subtitle:
+                            birthStr.isNotEmpty ? '生日: $birthStr' : '未设置生日',
+                        valueBadge: isCurrent ? '当前选择' : '点击切换',
+                        onTap: () async {
+                          Navigator.of(ctx).pop();
+                          if (!isCurrent) {
+                            await _localStorage
+                                .setCurrentConfigId(itemConfig.id);
+                            setState(() {
+                              _config = itemConfig;
+                            });
+                            widget.onConfigChanged(itemConfig);
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (DeviceType.isTV(context)) {
@@ -255,7 +345,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: const Color(0xFF1A1C22),
                 border: Border(
                   right: BorderSide(
-                    color: Colors.white.withOpacity(0.06),
+                    color: Colors.white.withValues(alpha: 0.06),
                     width: 1,
                   ),
                 ),
@@ -381,6 +471,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return Column(
           children: [
+            _TvSettingCard(
+              icon: Icons.switch_account_rounded,
+              title: '切换宝宝档案',
+              subtitle: '在已配对的宝宝相册档案之间快速切换',
+              valueBadge:
+                  _config.babyName.isNotEmpty ? _config.babyName : '未设置',
+              onTap: _showTvSwitchBabyDialog,
+            ),
+            const SizedBox(height: 14),
             _TvSettingCard(
               icon: Icons.baby_changing_station,
               title: '宝宝昵称',
@@ -651,7 +750,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -678,7 +777,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Theme.of(context).primaryColor.withOpacity(0.1),
+          color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, color: Theme.of(context).primaryColor, size: 20),
@@ -791,20 +890,20 @@ class _TvSettingCardState extends State<_TvSettingCard> {
               border: Border.all(
                 color: _isFocused
                     ? Colors.pink.shade300
-                    : Colors.white.withOpacity(0.06),
+                    : Colors.white.withValues(alpha: 0.06),
                 width: _isFocused ? 2.0 : 1.0,
               ),
               boxShadow: _isFocused
                   ? [
                       BoxShadow(
-                        color: Colors.pink.withOpacity(0.3),
+                        color: Colors.pink.withValues(alpha: 0.3),
                         blurRadius: 14,
                         spreadRadius: 1,
                       ),
                     ]
                   : [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
+                        color: Colors.black.withValues(alpha: 0.15),
                         blurRadius: 6,
                         offset: const Offset(0, 2),
                       ),
@@ -818,7 +917,7 @@ class _TvSettingCardState extends State<_TvSettingCard> {
                   decoration: BoxDecoration(
                     color: _isFocused
                         ? Colors.pink.shade500
-                        : Colors.white.withOpacity(0.08),
+                        : Colors.white.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -860,13 +959,13 @@ class _TvSettingCardState extends State<_TvSettingCard> {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: _isFocused
-                        ? Colors.pink.shade900.withOpacity(0.5)
-                        : Colors.white.withOpacity(0.06),
+                        ? Colors.pink.shade900.withValues(alpha: 0.5)
+                        : Colors.white.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: _isFocused
-                          ? Colors.pink.shade400.withOpacity(0.6)
-                          : Colors.white.withOpacity(0.08),
+                          ? Colors.pink.shade400.withValues(alpha: 0.6)
+                          : Colors.white.withValues(alpha: 0.08),
                     ),
                   ),
                   child: Text(
@@ -950,7 +1049,8 @@ class _TvCategoryRailItemState extends State<_TvCategoryRailItem> {
       border = Border.all(color: Colors.pink.shade400, width: 2.0);
     } else if (widget.isSelected) {
       bg = const Color(0xFF232630);
-      border = Border.all(color: Colors.white.withOpacity(0.08), width: 1.0);
+      border = Border.all(
+          color: Colors.white.withValues(alpha: 0.08), width: 1.0);
     } else {
       bg = Colors.transparent;
       border = Border.all(color: Colors.transparent);
@@ -985,7 +1085,7 @@ class _TvCategoryRailItemState extends State<_TvCategoryRailItem> {
               boxShadow: _isFocused
                   ? [
                       BoxShadow(
-                        color: Colors.pink.withOpacity(0.35),
+                        color: Colors.pink.withValues(alpha: 0.35),
                         blurRadius: 10,
                         spreadRadius: 1,
                       ),
@@ -1099,7 +1199,7 @@ class _TvBackButtonState extends State<_TvBackButton> {
           decoration: BoxDecoration(
             color: _isFocused
                 ? Colors.pink.shade500
-                : Colors.white.withOpacity(0.08),
+                : Colors.white.withValues(alpha: 0.08),
             shape: BoxShape.circle,
             border: Border.all(
               color: _isFocused ? Colors.pink.shade300 : Colors.transparent,

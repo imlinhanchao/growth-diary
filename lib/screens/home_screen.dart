@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
-import 'dart:typed_data';
 import 'dart:async';
 import '../models/app_config.dart';
 import '../models/diary_entry.dart';
@@ -27,6 +26,7 @@ import 'qr_scanner_screen.dart';
 import '../components/full_screen_image_view.dart';
 import '../components/full_screen_video_player.dart';
 import 'tv_slideshow_screen.dart';
+import 'setup_screen.dart';
 
 class UploadProgressData {
   final bool hasActiveTasks;
@@ -76,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late String currentConfigId;
   late AppConfig currentConfig;
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _tvScrollController = ScrollController();
   static const int _pageSize = 10;
   DateTime? _targetMonth;
 
@@ -135,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     currentConfigId = widget.currentConfigId;
     currentConfig = configs[currentConfigId]!;
     _scrollController.addListener(_onScroll);
+    _tvScrollController.addListener(_onTvScroll);
     WidgetsBinding.instance.addObserver(this);
 
     _deviceChannel.setMethodCallHandler((call) async {
@@ -213,6 +215,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     _deviceChannel.setMethodCallHandler(null);
     _scrollController.dispose();
+    _tvScrollController.removeListener(_onTvScroll);
+    _tvScrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     MediaUploadService.removeUploadProgressCallback();
     MediaUploadService.removeUploadCompletedCallback();
@@ -366,6 +370,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _onScroll() {
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
+      _loadMoreEntries();
+    }
+  }
+
+  void _onTvScroll() {
+    if (_tvScrollController.hasClients &&
+        _tvScrollController.position.pixels >=
+            _tvScrollController.position.maxScrollExtent - 400) {
       _loadMoreEntries();
     }
   }
@@ -2394,6 +2406,109 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _scrollToTvMonth(DateTime month) {
+    if (!_tvScrollController.hasClients) return;
+    final mediaItems = _getTvMediaItems();
+    if (mediaItems.isEmpty) return;
+
+    int targetIndex = mediaItems.indexWhere((it) =>
+        it.entry.date.year == month.year && it.entry.date.month == month.month);
+
+    if (targetIndex == -1) {
+      targetIndex = mediaItems.indexWhere((it) =>
+          it.entry.date.isBefore(DateTime(month.year, month.month + 1)));
+    }
+
+    if (targetIndex != -1) {
+      final rowIndex = targetIndex ~/ 4;
+      final screenWidth = MediaQuery.of(context).size.width;
+      const gridPadding = 28.0 * 2;
+      const crossSpacing = 18.0 * 3;
+      final itemWidth = (screenWidth - gridPadding - crossSpacing) / 4;
+      final itemHeight = itemWidth / 1.25;
+      final rowHeight = itemHeight + 18.0;
+      final targetOffset = rowIndex * rowHeight;
+
+      _tvScrollController.animateTo(
+        targetOffset.clamp(0.0, _tvScrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+  }
+
+  void _showTvTimelineDialog() {
+    final birthDate = currentConfig.childBirthDate;
+    final Map<DateTime, int> monthCounts = {};
+    for (final e in _entries) {
+      final m = DateTime(e.date.year, e.date.month);
+      monthCounts[m] =
+          (monthCounts[m] ?? 0) + e.imagePaths.length + e.videoPaths.length;
+    }
+
+    final sortedMonths = monthCounts.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return _TvTimelineDialog(
+          months: sortedMonths,
+          monthCounts: monthCounts,
+          birthDate: birthDate,
+          config: currentConfig,
+          onSelectMonth: (selectedMonth) {
+            Navigator.of(dialogContext).pop();
+            _scrollToTvMonth(selectedMonth);
+          },
+        );
+      },
+    );
+  }
+
+  void _showTvBabySwitcherDialog() {
+    final allConfigs = configs.values.toList();
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return _TvBabySwitcherDialog(
+          configs: allConfigs,
+          currentConfigId: currentConfigId,
+          onSelect: (selectedConfig) {
+            Navigator.of(dialogContext).pop();
+            if (selectedConfig.id != currentConfigId) {
+              setState(() {
+                currentConfigId = selectedConfig.id;
+                currentConfig = selectedConfig;
+                widget.localStorage.setCurrentConfigId(selectedConfig.id);
+              });
+              _switchConfig();
+            }
+          },
+          onAddNewBaby: () async {
+            Navigator.of(dialogContext).pop();
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SetupScreen()),
+            );
+            final updatedConfigs = await widget.localStorage.loadAllConfigs();
+            final currentId = await widget.localStorage.getCurrentConfigId();
+            if (mounted &&
+                currentId != null &&
+                updatedConfigs.containsKey(currentId)) {
+              setState(() {
+                configs = updatedConfigs;
+                currentConfigId = currentId;
+                currentConfig = configs[currentConfigId]!;
+              });
+              _switchConfig();
+            }
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildTvLayout(BuildContext context) {
     final mediaItems = _getTvMediaItems();
     final totalPhotos =
@@ -2447,7 +2562,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         color: const Color(0xFF1E1F24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -2455,42 +2570,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: Colors.pink.shade900,
-            backgroundImage: _coverImageData != null
-                ? MemoryImage(_coverImageData!)
-                : null,
-            child: _coverImageData == null
-                ? const Icon(Icons.child_care_rounded,
-                    color: Colors.white, size: 26)
-                : null,
+          _TvBabyProfileButton(
+            name: babyName,
+            ageText: ageText,
+            coverImage: _coverImageData,
+            onTap: _showTvBabySwitcherDialog,
           ),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                babyName,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              if (ageText.isNotEmpty)
-                Text(
-                  ageText,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.pink.shade300,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(width: 36),
+          const SizedBox(width: 20),
           _TvFilterTab(
             label: '全部',
             icon: Icons.grid_view_rounded,
@@ -2498,7 +2584,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             isSelected: _tvFilterIndex == 0,
             onTap: () => setState(() => _tvFilterIndex = 0),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           _TvFilterTab(
             label: '照片',
             icon: Icons.photo_library_rounded,
@@ -2506,7 +2592,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             isSelected: _tvFilterIndex == 1,
             onTap: () => setState(() => _tvFilterIndex = 1),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           _TvFilterTab(
             label: '视频',
             icon: Icons.videocam_rounded,
@@ -2516,21 +2602,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           const Spacer(),
           _TvFocusableButton(
+            icon: Icons.calendar_month_rounded,
+            label: '时间轴',
+            showLabelOnlyOnFocus: true,
+            onTap: _showTvTimelineDialog,
+          ),
+          const SizedBox(width: 8),
+          _TvFocusableButton(
             icon: Icons.slideshow_rounded,
-            label: '幻灯片播放',
+            label: '幻灯片',
             isPrimary: true,
             onTap: _startTvSlideshow,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           _TvFocusableButton(
             icon: Icons.refresh_rounded,
             label: '刷新',
+            showLabelOnlyOnFocus: true,
             onTap: _onRefresh,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           _TvFocusableButton(
             icon: Icons.settings_rounded,
             label: '设置',
+            showLabelOnlyOnFocus: true,
             onTap: _openSettings,
           ),
         ],
@@ -2540,6 +2635,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildTvMediaGrid(List<TvMediaItem> items) {
     return GridView.builder(
+      controller: _tvScrollController,
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 4,
@@ -2639,7 +2735,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               width: 110,
               height: 110,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.08),
+                color: Colors.white.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -2796,14 +2892,14 @@ class _TvMediaCardState extends State<_TvMediaCard> {
               boxShadow: _isFocused
                   ? [
                       BoxShadow(
-                        color: Colors.pink.withOpacity(0.55),
+                        color: Colors.pink.withValues(alpha: 0.55),
                         blurRadius: 18,
                         spreadRadius: 3,
                       ),
                     ]
                   : [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
+                        color: Colors.black.withValues(alpha: 0.2),
                         blurRadius: 6,
                         offset: const Offset(0, 3),
                       ),
@@ -2855,9 +2951,9 @@ class _TvMediaCardState extends State<_TvMediaCard> {
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            Colors.black.withOpacity(0.15),
+                            Colors.black.withValues(alpha: 0.15),
                             Colors.transparent,
-                            Colors.black.withOpacity(0.85),
+                            Colors.black.withValues(alpha: 0.85),
                           ],
                           stops: const [0.0, 0.45, 1.0],
                         ),
@@ -2871,7 +2967,7 @@ class _TvMediaCardState extends State<_TvMediaCard> {
                       child: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.45),
+                          color: Colors.black.withValues(alpha: 0.45),
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white54, width: 1.5),
                         ),
@@ -2892,7 +2988,7 @@ class _TvMediaCardState extends State<_TvMediaCard> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
+                          color: Colors.black.withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Row(
@@ -2972,15 +3068,17 @@ class _TvMediaCardState extends State<_TvMediaCard> {
 
 class _TvFocusableButton extends StatefulWidget {
   final IconData icon;
-  final String label;
+  final String? label;
   final VoidCallback onTap;
   final bool isPrimary;
+  final bool showLabelOnlyOnFocus;
 
   const _TvFocusableButton({
     required this.icon,
-    required this.label,
+    this.label,
     required this.onTap,
     this.isPrimary = false,
+    this.showLabelOnlyOnFocus = false,
   });
 
   @override
@@ -3007,10 +3105,16 @@ class _TvFocusableButtonState extends State<_TvFocusableButton> {
 
   @override
   Widget build(BuildContext context) {
+    final bool shouldShowLabel = widget.label != null &&
+        widget.label!.isNotEmpty &&
+        (!widget.showLabelOnlyOnFocus || _isFocused);
+
     final bgColor = widget.isPrimary
         ? (_isFocused ? Colors.pink.shade600 : Colors.pink.shade500)
-        : (_isFocused ? Colors.white.withOpacity(0.25) : Colors.white.withOpacity(0.12));
-    final fgColor = Colors.white;
+        : (_isFocused
+            ? Colors.white.withValues(alpha: 0.25)
+            : Colors.white.withValues(alpha: 0.12));
+    const fgColor = Colors.white;
     final borderColor = widget.isPrimary
         ? (_isFocused ? Colors.pink.shade300 : Colors.transparent)
         : (_isFocused ? Colors.pink.shade300 : Colors.transparent);
@@ -3035,15 +3139,19 @@ class _TvFocusableButtonState extends State<_TvFocusableButton> {
           duration: const Duration(milliseconds: 180),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            padding: EdgeInsets.symmetric(
+              horizontal: shouldShowLabel ? 14 : 10,
+              vertical: 8,
+            ),
             decoration: BoxDecoration(
               color: bgColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: borderColor, width: _isFocused ? 2.5 : 1),
+              border:
+                  Border.all(color: borderColor, width: _isFocused ? 2.5 : 1),
               boxShadow: _isFocused
                   ? [
                       BoxShadow(
-                        color: Colors.pink.withOpacity(0.45),
+                        color: Colors.pink.withValues(alpha: 0.45),
                         blurRadius: 12,
                         spreadRadius: 2,
                       ),
@@ -3054,15 +3162,17 @@ class _TvFocusableButtonState extends State<_TvFocusableButton> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(widget.icon, size: 18, color: fgColor),
-                const SizedBox(width: 8),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    color: fgColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                if (shouldShowLabel) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    widget.label!,
+                    style: const TextStyle(
+                      color: fgColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -3123,8 +3233,8 @@ class _TvFilterTabState extends State<_TvFilterTab> {
           width: 2);
     } else {
       bg = _isFocused
-          ? Colors.white.withOpacity(0.2)
-          : Colors.white.withOpacity(0.08);
+          ? Colors.white.withValues(alpha: 0.2)
+          : Colors.white.withValues(alpha: 0.08);
       fg = _isFocused ? Colors.white : Colors.white70;
       border = Border.all(
           color: _isFocused ? Colors.pink.shade300 : Colors.transparent,
@@ -3151,7 +3261,7 @@ class _TvFilterTabState extends State<_TvFilterTab> {
           duration: const Duration(milliseconds: 180),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(20),
@@ -3159,7 +3269,7 @@ class _TvFilterTabState extends State<_TvFilterTab> {
               boxShadow: _isFocused
                   ? [
                       BoxShadow(
-                        color: Colors.pink.withOpacity(0.4),
+                        color: Colors.pink.withValues(alpha: 0.4),
                         blurRadius: 10,
                         spreadRadius: 1,
                       )
@@ -3172,7 +3282,9 @@ class _TvFilterTabState extends State<_TvFilterTab> {
                 Icon(widget.icon, size: 16, color: fg),
                 const SizedBox(width: 6),
                 Text(
-                  '${widget.label} (${widget.count})',
+                  widget.count > 0
+                      ? '${widget.label} (${widget.count})'
+                      : widget.label,
                   style: TextStyle(
                     color: fg,
                     fontSize: 13,
@@ -3189,4 +3301,666 @@ class _TvFilterTabState extends State<_TvFilterTab> {
     );
   }
 }
+
+class _TvBabyProfileButton extends StatefulWidget {
+  final String name;
+  final String ageText;
+  final Uint8List? coverImage;
+  final VoidCallback onTap;
+
+  const _TvBabyProfileButton({
+    required this.name,
+    required this.ageText,
+    required this.coverImage,
+    required this.onTap,
+  });
+
+  @override
+  State<_TvBabyProfileButton> createState() => _TvBabyProfileButtonState();
+}
+
+class _TvBabyProfileButtonState extends State<_TvBabyProfileButton> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.05 : 1.0,
+          duration: const Duration(milliseconds: 180),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: _isFocused
+                  ? Colors.white.withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: _isFocused
+                    ? Colors.pink.shade400
+                    : Colors.white.withValues(alpha: 0.12),
+                width: _isFocused ? 2.5 : 1,
+              ),
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withValues(alpha: 0.4),
+                        blurRadius: 14,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: Colors.pink.shade900,
+                  backgroundImage: widget.coverImage != null
+                      ? MemoryImage(widget.coverImage!)
+                      : null,
+                  child: widget.coverImage == null
+                      ? const Icon(Icons.child_care_rounded,
+                          color: Colors.white, size: 24)
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.name,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.arrow_drop_down_rounded,
+                          color:
+                              _isFocused ? Colors.pink.shade300 : Colors.white70,
+                          size: 22,
+                        ),
+                      ],
+                    ),
+                    if (widget.ageText.isNotEmpty)
+                      Text(
+                        widget.ageText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.pink.shade300,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvBabyDialogItem extends StatefulWidget {
+  final AppConfig config;
+  final bool isCurrent;
+  final VoidCallback onTap;
+
+  const _TvBabyDialogItem({
+    required this.config,
+    required this.isCurrent,
+    required this.onTap,
+  });
+
+  @override
+  State<_TvBabyDialogItem> createState() => _TvBabyDialogItemState();
+}
+
+class _TvBabyDialogItemState extends State<_TvBabyDialogItem> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final babyName = widget.config.babyName.isNotEmpty
+        ? widget.config.babyName
+        : '宝宝';
+    final ageText = widget.config.babyBirthDate != null
+        ? AgeCalculator.formatAgeLabel(
+            AgeCalculator.calculateAgeInMonths(
+                widget.config.babyBirthDate!, DateTime.now()))
+        : '';
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.03 : 1.0,
+          duration: const Duration(milliseconds: 150),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _isFocused
+                  ? Colors.pink.shade900.withValues(alpha: 0.4)
+                  : (widget.isCurrent
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.white.withValues(alpha: 0.04)),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _isFocused
+                    ? Colors.pink.shade400
+                    : (widget.isCurrent
+                        ? Colors.pink.shade700.withValues(alpha: 0.6)
+                        : Colors.white.withValues(alpha: 0.08)),
+                width: _isFocused ? 2.5 : 1,
+              ),
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withValues(alpha: 0.35),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: widget.isCurrent
+                      ? Colors.pink.shade600
+                      : Colors.white.withValues(alpha: 0.15),
+                  child: const Icon(
+                    Icons.child_care_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        babyName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (ageText.isNotEmpty)
+                        Text(
+                          ageText,
+                          style: TextStyle(
+                            color: Colors.pink.shade300,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (widget.isCurrent)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.pink.shade600,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_rounded, color: Colors.white, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          '当前',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvBabySwitcherDialog extends StatelessWidget {
+  final List<AppConfig> configs;
+  final String currentConfigId;
+  final ValueChanged<AppConfig> onSelect;
+  final VoidCallback onAddNewBaby;
+
+  const _TvBabySwitcherDialog({
+    required this.configs,
+    required this.currentConfigId,
+    required this.onSelect,
+    required this.onAddNewBaby,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1E1F24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side:
+            BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 1.5),
+      ),
+      child: Container(
+        width: 640,
+        height: 480,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.switch_account_rounded,
+                    color: Colors.pink.shade300, size: 26),
+                const SizedBox(width: 12),
+                const Text(
+                  '切换宝宝档案',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                const Text(
+                  '按遥控器方向键选择',
+                  style: TextStyle(color: Colors.white38, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView.separated(
+                itemCount: configs.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final config = configs[index];
+                  final isCurrent = config.id == currentConfigId;
+                  return _TvBabyDialogItem(
+                    config: config,
+                    isCurrent: isCurrent,
+                    onTap: () => onSelect(config),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _TvFocusableButton(
+                  icon: Icons.qr_code_2_rounded,
+                  label: '扫码配对新宝宝 (接收手机配置)',
+                  onTap: onAddNewBaby,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TvTimelineItem extends StatefulWidget {
+  final DateTime month;
+  final int count;
+  final DateTime? birthDate;
+  final AppConfig config;
+  final VoidCallback onTap;
+
+  const _TvTimelineItem({
+    required this.month,
+    required this.count,
+    required this.birthDate,
+    required this.config,
+    required this.onTap,
+  });
+
+  @override
+  State<_TvTimelineItem> createState() => _TvTimelineItemState();
+}
+
+class _TvTimelineItemState extends State<_TvTimelineItem> {
+  bool _isFocused = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isBirthMonth = widget.birthDate != null &&
+        widget.month.year == widget.birthDate!.year &&
+        widget.month.month == widget.birthDate!.month;
+    final isBirthdayMonth = widget.birthDate != null &&
+        widget.month.month == widget.birthDate!.month &&
+        widget.month.year > widget.birthDate!.year;
+
+    final ageLabel = AgeCalculator.formatSimplifiedAgeLabel(
+      DateTime(widget.month.year, widget.month.month, 1),
+      widget.config,
+    );
+    final monthStr = '${widget.month.year}年${widget.month.month}月';
+
+    final IconData iconData = isBirthMonth
+        ? Icons.child_friendly_rounded
+        : isBirthdayMonth
+            ? Icons.cake_rounded
+            : Icons.calendar_today_rounded;
+
+    final Color iconColor = isBirthMonth
+        ? Colors.lightBlueAccent
+        : isBirthdayMonth
+            ? Colors.pinkAccent
+            : Colors.white70;
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.space)) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.03 : 1.0,
+          duration: const Duration(milliseconds: 150),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: _isFocused
+                  ? Colors.pink.shade900.withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _isFocused
+                    ? Colors.pink.shade400
+                    : Colors.white.withValues(alpha: 0.08),
+                width: _isFocused ? 2.5 : 1,
+              ),
+              boxShadow: _isFocused
+                  ? [
+                      BoxShadow(
+                        color: Colors.pink.withValues(alpha: 0.35),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(iconData, color: iconColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isBirthMonth ? '🎉 出生月' : ageLabel,
+                        style: TextStyle(
+                          color: isBirthMonth || isBirthdayMonth
+                              ? Colors.pink.shade200
+                              : Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        monthStr,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${widget.count} 项',
+                    style: TextStyle(
+                      color: Colors.pink.shade200,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvTimelineDialog extends StatelessWidget {
+  final List<DateTime> months;
+  final Map<DateTime, int> monthCounts;
+  final DateTime? birthDate;
+  final AppConfig config;
+  final ValueChanged<DateTime> onSelectMonth;
+
+  const _TvTimelineDialog({
+    required this.months,
+    required this.monthCounts,
+    required this.birthDate,
+    required this.config,
+    required this.onSelectMonth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1E1F24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side:
+            BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 1.5),
+      ),
+      child: Container(
+        width: 760,
+        height: 540,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.calendar_month_rounded,
+                    color: Colors.pink.shade300, size: 26),
+                const SizedBox(width: 12),
+                const Text(
+                  '时间轴快速跳转',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.pink.shade900.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '共 ${months.length} 个月份',
+                    style: TextStyle(
+                      color: Colors.pink.shade200,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                const Text(
+                  '按遥控器方向键选择，按确认键跳转',
+                  style: TextStyle(color: Colors.white38, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
+            const SizedBox(height: 16),
+            Expanded(
+              child: months.isEmpty
+                  ? const Center(
+                      child: Text(
+                        '暂无记录',
+                        style: TextStyle(color: Colors.white54, fontSize: 16),
+                      ),
+                    )
+                  : GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 14,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 3.2,
+                      ),
+                      itemCount: months.length,
+                      itemBuilder: (context, index) {
+                        final month = months[index];
+                        final count = monthCounts[month] ?? 0;
+                        return _TvTimelineItem(
+                          month: month,
+                          count: count,
+                          birthDate: birthDate,
+                          config: config,
+                          onTap: () => onSelectMonth(month),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
