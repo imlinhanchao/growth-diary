@@ -197,11 +197,13 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _formatDuration(Duration(seconds: _startValue.toInt())),
+                        _formatDuration(
+                            Duration(milliseconds: _startValue.toInt())),
                         style: const TextStyle(color: Colors.white),
                       ),
                       Text(
-                        _formatDuration(Duration(seconds: _endValue.toInt())),
+                        _formatDuration(
+                            Duration(milliseconds: _endValue.toInt())),
                         style: const TextStyle(color: Colors.white),
                       ),
                     ],

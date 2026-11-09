@@ -1,5 +1,3 @@
-import 'dart:collection';
-
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -14,12 +12,7 @@ class UploadTasksScreen extends StatefulWidget {
 }
 
 class _UploadTasksScreenState extends State<UploadTasksScreen> {
-  List<MediaTask> get _tasks => [
-        ...(_currentTask != null ? [_currentTask!] : []),
-        ..._uploadQueue
-      ];
-  Queue<MediaTask> _uploadQueue = Queue<MediaTask>();
-  MediaTask? _currentTask;
+  List<MediaTask> _tasks = [];
 
   @override
   void initState() {
@@ -44,10 +37,9 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
   }
 
   void _loadTasks() {
+    if (!mounted) return;
     setState(() {
-      // 只显示未完成和暂停的任务
-      _uploadQueue = MediaUploadService.uploadQueue;
-      _currentTask = MediaUploadService.currentTask;
+      _tasks = MediaUploadService.getAllUploadTasks();
     });
   }
 
@@ -60,6 +52,10 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
   bool _hasPausedTasks() {
     return _tasks
         .any((task) => task.uploadStatus == file_utils.UploadStatus.paused);
+  }
+
+  bool _hasFailedTasks() {
+    return MediaUploadService.hasFailedUploads();
   }
 
   void _clearAllTasks() async {
@@ -159,6 +155,15 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
               },
               tooltip: '停止所有上传',
             ),
+          if (_hasFailedTasks())
+            IconButton(
+              icon: const Icon(Icons.replay),
+              onPressed: () {
+                MediaUploadService.retryAllFailed();
+                _loadTasks();
+              },
+              tooltip: '重试全部失败',
+            ),
           if (_tasks.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_sweep_outlined),
@@ -195,8 +200,15 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
               itemCount: _tasks.length,
               itemBuilder: (context, index) {
                 final task = _tasks[index];
-                final fileSizeMB =
-                    File(task.srcPath).lengthSync() / (1024 * 1024);
+                double fileSizeMB = 0;
+                if (task.fileSize != null && task.fileSize! > 0) {
+                  fileSizeMB = task.fileSize! / (1024 * 1024);
+                } else {
+                  try {
+                    fileSizeMB =
+                        File(task.srcPath).lengthSync() / (1024 * 1024);
+                  } catch (_) {}
+                }
                 final statusColor = _getStatusColor(task.uploadStatus);
 
                 return Container(
@@ -214,81 +226,210 @@ class _UploadTasksScreenState extends State<UploadTasksScreen> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 缩略图区域
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.grey[100],
-                            image: task.thumbPathSmall != null
-                                ? DecorationImage(
-                                    image: MemoryImage(task.thumbPathSmall!),
-                                    fit: BoxFit.cover,
-                                  )
-                                : null,
-                          ),
-                          child: task.thumbPathSmall == null
-                              ? Icon(
-                                  task.type == file_utils.MediaType.video
-                                      ? Icons.videocam_outlined
-                                      : Icons.image_outlined,
-                                  color: Colors.grey[400],
-                                  size: 28,
-                                )
-                              : null,
-                        ),
-                        const SizedBox(width: 16),
-                        // 信息区域
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                p.basename(task.srcPath),
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF333333),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            // 缩略图区域
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.grey[100],
+                                image: task.thumbPathSmall != null
+                                    ? DecorationImage(
+                                        image:
+                                            MemoryImage(task.thumbPathSmall!),
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
                               ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: statusColor,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _getStatusText(task.uploadStatus),
-                                    style: TextStyle(
-                                      color: statusColor,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    '${fileSizeMB.toStringAsFixed(2)} MB',
-                                    style: TextStyle(
+                              child: task.thumbPathSmall == null
+                                  ? Icon(
+                                      task.type == file_utils.MediaType.video
+                                          ? Icons.videocam_outlined
+                                          : Icons.image_outlined,
                                       color: Colors.grey[400],
-                                      fontSize: 12,
+                                      size: 28,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 14),
+                            // 信息区域
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    p.basename(task.srcPath),
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF333333),
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: statusColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _getStatusText(task.uploadStatus),
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      if (task.uploadStatus ==
+                                          file_utils.UploadStatus.uploading) ...[
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${(task.progress * 100).toInt()}%',
+                                          style: const TextStyle(
+                                            color: Colors.blueAccent,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                      const Spacer(),
+                                      if (fileSizeMB > 0)
+                                        Text(
+                                          '${fileSizeMB.toStringAsFixed(1)} MB',
+                                          style: TextStyle(
+                                            color: Colors.grey[400],
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ],
                               ),
+                            ),
+                            // 操作按钮
+                            if (task.uploadStatus ==
+                                file_utils.UploadStatus.failed) ...[
+                              IconButton(
+                                icon: const Icon(Icons.refresh,
+                                    color: Colors.blueAccent, size: 22),
+                                tooltip: '重试',
+                                onPressed: () {
+                                  MediaUploadService.retryTask(task);
+                                  _loadTasks();
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Colors.grey, size: 22),
+                                tooltip: '删除',
+                                onPressed: () {
+                                  MediaUploadService.removeTask(task);
+                                  _loadTasks();
+                                },
+                              ),
+                            ] else if (task.uploadStatus ==
+                                file_utils.UploadStatus.pending) ...[
+                              IconButton(
+                                icon: const Icon(Icons.close,
+                                    color: Colors.grey, size: 20),
+                                tooltip: '取消',
+                                onPressed: () {
+                                  MediaUploadService.removeTask(task);
+                                  _loadTasks();
+                                },
+                              ),
+                            ],
+                          ],
+                        ),
+                        // 进度条或错误提示
+                        if (task.uploadStatus ==
+                            file_utils.UploadStatus.uploading) ...[
+                          const SizedBox(height: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: task.progress > 0 ? task.progress : null,
+                              backgroundColor: Colors.grey[200],
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                  Colors.blueAccent),
+                              minHeight: 4,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${(fileSizeMB * task.progress).toStringAsFixed(1)} MB / ${fileSizeMB.toStringAsFixed(1)} MB',
+                                style: TextStyle(
+                                    color: Colors.grey[500], fontSize: 11),
+                              ),
+                              Text(
+                                '${(task.progress * 100).toStringAsFixed(0)}%',
+                                style: TextStyle(
+                                    color: Colors.grey[500], fontSize: 11),
+                              ),
                             ],
                           ),
-                        ),
+                        ] else if (task.uploadStatus ==
+                            file_utils.UploadStatus.compressing) ...[
+                          const SizedBox(height: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: const LinearProgressIndicator(
+                              backgroundColor: Color(0xFFEEEEEE),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.orangeAccent),
+                              minHeight: 4,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '正在压缩视频...',
+                            style: TextStyle(
+                                color: Colors.orangeAccent[700], fontSize: 11),
+                          ),
+                        ] else if (task.uploadStatus ==
+                                file_utils.UploadStatus.failed &&
+                            task.errorMessage != null) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.error_outline,
+                                    size: 14, color: Colors.red.shade400),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    task.errorMessage!,
+                                    style: TextStyle(
+                                        color: Colors.red.shade700, fontSize: 11),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

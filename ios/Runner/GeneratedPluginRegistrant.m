@@ -24,6 +24,12 @@
 @import flutter_local_notifications;
 #endif
 
+#if __has_include(<flutter_native_splash/FlutterNativeSplashPlugin.h>)
+#import <flutter_native_splash/FlutterNativeSplashPlugin.h>
+#else
+@import flutter_native_splash;
+#endif
+
 #if __has_include(<flutter_native_video_trimmer/VideoTrimmerPlugin.h>)
 #import <flutter_native_video_trimmer/VideoTrimmerPlugin.h>
 #else
@@ -108,6 +114,7 @@
   [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];
   [ImageCompressPlugin registerWithRegistrar:[registry registrarForPlugin:@"ImageCompressPlugin"]];
   [FlutterLocalNotificationsPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterLocalNotificationsPlugin"]];
+  [FlutterNativeSplashPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterNativeSplashPlugin"]];
   [VideoTrimmerPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoTrimmerPlugin"]];
   [FlutterVideoInfoPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterVideoInfoPlugin"]];
   [VideoThumbnailPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoThumbnailPlugin"]];

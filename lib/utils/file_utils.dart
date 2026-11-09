@@ -80,28 +80,97 @@ class FileUtils {
     }
   }
 
+  static bool _isVideoExtension(String filePath) {
+    final ext = path.extension(filePath).toLowerCase();
+    return const [
+      '.mp4',
+      '.mov',
+      '.avi',
+      '.mkv',
+      '.webm',
+      '.flv',
+      '.m4v',
+      '.3gp',
+      '.ts',
+      '.wmv'
+    ].contains(ext);
+  }
+
   /// 选择视频文件
   /// 返回选中的视频文件对象数组
+  /// 优先使用系统原生媒体相册（ImagePicker），在移动设备上打开相册而非文档文件管理器
   static Future<List<MediaFile>> selectVideos({
     ImageSource source = ImageSource.gallery,
     bool allowMultiple = true,
   }) async {
     try {
+      if (source == ImageSource.camera) {
+        final XFile? video =
+            await _picker.pickVideo(source: ImageSource.camera);
+        return video != null
+            ? [
+                MediaFile(
+                  srcPath: video.path,
+                  type: MediaType.video,
+                )
+              ]
+            : [];
+      }
+
       if (allowMultiple) {
+        try {
+          // 优先调用系统相册选择器 (在移动设备上打开相册/Photo Picker而非文件管理器)
+          final List<XFile> mediaList = await _picker.pickMultipleMedia();
+          if (mediaList.isNotEmpty) {
+            // 筛选其中的视频文件；如果选中的均符合常见视频扩展名优先，否则全量作为视频返回
+            final videos = mediaList
+                .where((file) => _isVideoExtension(file.path))
+                .toList();
+            final selectedList = videos.isNotEmpty ? videos : mediaList;
+            return selectedList
+                .map((file) => MediaFile(
+                      srcPath: file.path,
+                      type: MediaType.video,
+                    ))
+                .toList();
+          }
+          return [];
+        } catch (e) {
+          debugPrint('pickMultipleMedia 异常或平台不支持，尝试回退: $e');
+        }
+
+        // 回退机制 1: 单选相册 pickVideo
+        try {
+          final XFile? singleVideo =
+              await _picker.pickVideo(source: ImageSource.gallery);
+          if (singleVideo != null) {
+            return [
+              MediaFile(
+                srcPath: singleVideo.path,
+                type: MediaType.video,
+              )
+            ];
+          }
+          return [];
+        } catch (e) {
+          debugPrint('pickVideo 回退失败: $e');
+        }
+
+        // 回退机制 2: FilePicker (兜底)
         var result = await FilePicker.platform.pickFiles(
           type: FileType.video,
           allowMultiple: true,
         );
         if (result != null) {
           return result.files
+              .where((file) => file.path != null)
               .map((file) => MediaFile(
                     srcPath: file.path!,
                     type: MediaType.video,
                   ))
               .toList();
-        } else {
-          return [];
         }
+        return [];
       } else {
         final XFile? video = await _picker.pickVideo(source: source);
         return video != null

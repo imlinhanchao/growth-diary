@@ -12,6 +12,10 @@ import '../models/diary_entry.dart';
 
 class MediaTask extends MediaFile {
   UploadStatus uploadStatus;
+  double progress;
+  int? fileSize;
+  String? errorMessage;
+
   MediaTask({
     required super.srcPath,
     super.type,
@@ -20,6 +24,9 @@ class MediaTask extends MediaFile {
     super.uploadPath,
     super.createdAt,
     this.uploadStatus = UploadStatus.pending,
+    this.progress = 0.0,
+    this.fileSize,
+    this.errorMessage,
   });
 
   // 序列化方法
@@ -34,6 +41,9 @@ class MediaTask extends MediaFile {
       'uploadPath': uploadPath,
       'createdAt': createdAt?.toIso8601String(),
       'uploadStatus': uploadStatus.toString().split('.').last,
+      'progress': progress,
+      'fileSize': fileSize,
+      'errorMessage': errorMessage,
     };
   }
 
@@ -58,6 +68,9 @@ class MediaTask extends MediaFile {
         (e) => e.toString().split('.').last == json['uploadStatus'],
         orElse: () => UploadStatus.pending,
       ),
+      progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
+      fileSize: json['fileSize'] as int?,
+      errorMessage: json['errorMessage'] as String?,
     );
   }
 }
@@ -73,6 +86,9 @@ class MediaUploadService {
 
   // 上传任务队列
   final Queue<MediaTask> _uploadQueue = Queue<MediaTask>();
+
+  // 失败任务列表
+  final List<MediaTask> _failedTasks = [];
 
   // 当前正在上传的任务
   MediaTask? _currentTask;
@@ -100,6 +116,13 @@ class MediaUploadService {
 
   static get currentTask {
     return _instance._currentTask;
+  }
+
+  static List<MediaTask> get failedTasks =>
+      List.unmodifiable(_instance._failedTasks);
+
+  static double getCurrentTaskProgress() {
+    return _instance._currentTask?.progress ?? 0.0;
   }
 
   // 上传进度回调
@@ -158,6 +181,7 @@ class MediaUploadService {
   /// 清空所有任务
   static void clearAllTasks() {
     _instance._uploadQueue.clear();
+    _instance._failedTasks.clear();
     _instance._currentTask = null;
     _instance._isRunning = false;
     _instance._totalTasks = 0;
@@ -167,19 +191,85 @@ class MediaUploadService {
     _globalUploadProgressCallback?.call();
   }
 
-  /// 获取所有上传任务
+  /// 获取所有上传任务（包括上传中、待上传和失败任务）
   static List<MediaTask> getAllUploadTasks() {
     final tasks = <MediaTask>[];
     if (_instance._currentTask != null) {
       tasks.add(_instance._currentTask!);
     }
     tasks.addAll(_instance._uploadQueue);
+    tasks.addAll(_instance._failedTasks);
     return tasks;
   }
 
   /// 检查是否有活跃的上传任务
   static bool hasActiveUploads() {
-    return _instance._isRunning || _instance._uploadQueue.isNotEmpty;
+    return _instance._isRunning ||
+        _instance._uploadQueue.isNotEmpty ||
+        _instance._currentTask != null;
+  }
+
+  /// 检查是否有失败的上传任务
+  static bool hasFailedUploads() {
+    return _instance._failedTasks.isNotEmpty;
+  }
+
+  /// 重试单个失败任务
+  static void retryTask(MediaTask task) {
+    _instance._retryTask(task);
+  }
+
+  void _retryTask(MediaTask task) {
+    _failedTasks.remove(task);
+    task.uploadStatus = UploadStatus.pending;
+    task.progress = 0.0;
+    task.errorMessage = null;
+    _uploadQueue.add(task);
+    _totalTasks++;
+    _saveTaskQueue();
+    if (!_isRunning) {
+      _startProcessing();
+    } else {
+      _globalUploadProgressCallback?.call();
+    }
+  }
+
+  /// 重试所有失败任务
+  static void retryAllFailed() {
+    _instance._retryAllFailed();
+  }
+
+  void _retryAllFailed() {
+    final tasks = List<MediaTask>.from(_failedTasks);
+    _failedTasks.clear();
+    for (final task in tasks) {
+      task.uploadStatus = UploadStatus.pending;
+      task.progress = 0.0;
+      task.errorMessage = null;
+      _uploadQueue.add(task);
+      _totalTasks++;
+    }
+    _saveTaskQueue();
+    if (!_isRunning && _uploadQueue.isNotEmpty) {
+      _startProcessing();
+    } else {
+      _globalUploadProgressCallback?.call();
+    }
+  }
+
+  /// 移除指定任务（无论是等待中还是失败任务）
+  static bool removeTask(MediaTask task) {
+    return _instance._removeTask(task);
+  }
+
+  bool _removeTask(MediaTask task) {
+    if (_failedTasks.remove(task)) {
+      _removeMediaFromPendingEntries(task);
+      _saveTaskQueue();
+      _globalUploadProgressCallback?.call();
+      return true;
+    }
+    return removePendingTask(task.srcPath);
   }
 
   /// 设置上传进度回调
@@ -226,6 +316,7 @@ class MediaUploadService {
 
       final tasksData = {
         'queue': _uploadQueue.map((task) => task.toJson()).toList(),
+        'failedTasks': _failedTasks.map((task) => task.toJson()).toList(),
         'currentTask': _currentTask?.toJson(),
         'isRunning': _isRunning,
         'totalTasks': _totalTasks,
@@ -278,6 +369,15 @@ class MediaUploadService {
       if (tasksData['currentTask'] != null) {
         _currentTask = MediaTask.fromJson(
             tasksData['currentTask'] as Map<String, dynamic>);
+      }
+
+      // 恢复失败任务列表
+      if (tasksData['failedTasks'] != null) {
+        final failedData = tasksData['failedTasks'] as List<dynamic>;
+        _failedTasks.clear();
+        for (final item in failedData) {
+          _failedTasks.add(MediaTask.fromJson(item as Map<String, dynamic>));
+        }
       }
 
       // 恢复运行状态
@@ -358,6 +458,15 @@ class MediaUploadService {
     }
 
     _currentUploadDescription = description;
+
+    // 预填充文件大小
+    for (final task in tasks) {
+      if (task.fileSize == null) {
+        try {
+          task.fileSize = File(task.srcPath).lengthSync();
+        } catch (_) {}
+      }
+    }
 
     // 将 MediaTask 转换为 MediaFile 列表
     final mediaFiles = tasks
@@ -640,6 +749,7 @@ class MediaUploadService {
 
       // 上传成功
       _currentTask!.uploadStatus = UploadStatus.completed;
+      _currentTask!.progress = 1.0;
       _completedTasks++; // 增加完成任务数
       _onTaskCompleted?.call(_currentTask!);
       // 保存状态
@@ -649,6 +759,8 @@ class MediaUploadService {
     } catch (e) {
       // 上传失败
       _currentTask!.uploadStatus = UploadStatus.failed;
+      _currentTask!.errorMessage = e.toString();
+      _failedTasks.add(_currentTask!);
       _onTaskFailed?.call(_currentTask!, e.toString());
       // 保存状态
       _saveTaskQueue();
@@ -726,7 +838,9 @@ class MediaUploadService {
           file,
           onProgress: (progress) {
             // 主文件上传进度：0-70%
-            _onProgress?.call(task, progress * 0.7);
+            task.progress = progress * 0.7;
+            _onProgress?.call(task, task.progress);
+            _globalUploadProgressCallback?.call();
           },
         );
         // 设置上传路径
@@ -738,7 +852,9 @@ class MediaUploadService {
         _saveTaskQueue();
       }
 
+      task.progress = 0.7;
       _onProgress?.call(task, 0.7); // 70% 进度
+      _globalUploadProgressCallback?.call();
 
       // 2. 上传缩略图（如果存在）
       if (task.thumbPathMedium != null && task.thumbPathMedium!.isNotEmpty) {
@@ -754,7 +870,9 @@ class MediaUploadService {
           task.thumbPathMedium!,
           onProgress: (progress) {
             // 中等缩略图上传进度：70-85%
-            _onProgress?.call(task, 0.7 + progress * 0.15);
+            task.progress = 0.7 + progress * 0.15;
+            _onProgress?.call(task, task.progress);
+            _globalUploadProgressCallback?.call();
           },
         );
         if (success || await _cloudStorage!.fileExists(thumbMediumPath)) {
@@ -762,7 +880,9 @@ class MediaUploadService {
           _saveTaskQueue();
         }
 
+        task.progress = 0.85;
         _onProgress?.call(task, 0.85); // 85% 进度
+        _globalUploadProgressCallback?.call();
       }
 
       if (task.thumbPathSmall != null && task.thumbPathSmall!.isNotEmpty) {
@@ -778,7 +898,9 @@ class MediaUploadService {
           task.thumbPathSmall!,
           onProgress: (progress) {
             // 小缩略图上传进度：85-100%
-            _onProgress?.call(task, 0.85 + progress * 0.15);
+            task.progress = 0.85 + progress * 0.15;
+            _onProgress?.call(task, task.progress);
+            _globalUploadProgressCallback?.call();
           },
         );
         if (success || await _cloudStorage!.fileExists(thumbSmallPath)) {
@@ -786,9 +908,13 @@ class MediaUploadService {
           _saveTaskQueue();
         }
 
+        task.progress = 1.0;
         _onProgress?.call(task, 1.0); // 100% 进度
+        _globalUploadProgressCallback?.call();
       } else {
+        task.progress = 1.0;
         _onProgress?.call(task, 1.0); // 如果没有小缩略图，直接完成
+        _globalUploadProgressCallback?.call();
       }
 
       // 上传成功

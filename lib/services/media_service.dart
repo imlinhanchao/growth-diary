@@ -123,15 +123,15 @@ class MediaService {
     required CloudStorageService cloudService,
   }) async {
     try {
-      final videoData = await cloudService.downloadFile(videoPath);
-      if (videoData == null) {
+      final videoFile = await cloudService.downloadToFile(videoPath);
+      if (videoFile == null || !await videoFile.exists()) {
         return const DownloadResult(
           success: false,
           message: '下载视频数据失败',
         );
       }
 
-      final tempFilePath = await _saveVideoToTempFile(videoData);
+      final tempFilePath = videoFile.path;
 
       if (Platform.isAndroid) {
         // Android使用MediaStore
@@ -191,14 +191,6 @@ class MediaService {
   static Future<String> _saveImageToTempFile(Uint8List data) async {
     final tempDir = await getTemporaryDirectory();
     final tempFile = File('${tempDir.path}/temp_image.jpg');
-    await tempFile.writeAsBytes(data);
-    return tempFile.path;
-  }
-
-  /// 保存视频到临时文件
-  static Future<String> _saveVideoToTempFile(Uint8List data) async {
-    final tempDir = await getTemporaryDirectory();
-    final tempFile = File('${tempDir.path}/temp_video.mp4');
     await tempFile.writeAsBytes(data);
     return tempFile.path;
   }

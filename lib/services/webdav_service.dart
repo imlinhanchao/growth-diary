@@ -104,9 +104,9 @@ class WebDAVService implements CloudStorageService {
         password: _config!.password,
         debug: false,
       );
-      _client!.setConnectTimeout(8000);
-      _client!.setSendTimeout(8000);
-      _client!.setReceiveTimeout(8000);
+      _client!.setConnectTimeout(15000);
+      _client!.setSendTimeout(60000);
+      _client!.setReceiveTimeout(60000);
     }
 
     return _client;
@@ -326,11 +326,83 @@ class WebDAVService implements CloudStorageService {
   }
 
   @override
+  Future<File?> downloadToFile(String path,
+      {String? targetFilePath, Function(double)? onProgress}) async {
+    // 1. 优先检查本地磁盘缓存
+    final cachedFile = await _fileCache.getExistingFile(path);
+    if (cachedFile != null) {
+      if (targetFilePath != null && cachedFile.path != targetFilePath) {
+        final targetFile = File(targetFilePath);
+        if (!await targetFile.parent.exists()) {
+          await targetFile.parent.create(recursive: true);
+        }
+        await cachedFile.copy(targetFilePath);
+        return targetFile;
+      }
+      return cachedFile;
+    }
+
+    final client = await _ensureClient();
+    if (client == null) return null;
+
+    try {
+      final fullPath =
+          path.startsWith('growth_diary/') ? path : '${_getBasePath()}/$path';
+      final saveFile = targetFilePath != null
+          ? File(targetFilePath)
+          : _fileCache.getCacheFile(path);
+
+      if (!await saveFile.parent.exists()) {
+        await saveFile.parent.create(recursive: true);
+      }
+
+      // 使用临时文件流式写入，避免下载中断导致缓存损坏
+      final tempSavePath =
+          '${saveFile.path}.tmp_${DateTime.now().millisecondsSinceEpoch}';
+      await client.read2File(
+        fullPath,
+        tempSavePath,
+        onProgress: onProgress != null
+            ? (count, total) {
+                if (total > 0) {
+                  onProgress(count / total);
+                }
+              }
+            : null,
+      );
+
+      final tempFile = File(tempSavePath);
+      if (await tempFile.exists()) {
+        if (await saveFile.exists()) {
+          await saveFile.delete();
+        }
+        await tempFile.rename(saveFile.path);
+        debugPrint('Successfully streamed and cached file: ${saveFile.path}');
+        return saveFile;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error streaming download to file $path: $e');
+      return null;
+    }
+  }
+
+  @override
   Future<Uint8List?> downloadFile(String path) async {
     // 检查缓存
     final cachedData = await _fileCache.get(path);
     if (cachedData != null) {
       return cachedData;
+    }
+
+    // 检查磁盘中是否已有流式下载好的完整文件
+    final existingFile = await _fileCache.getExistingFile(path);
+    if (existingFile != null) {
+      try {
+        return await existingFile.readAsBytes();
+      } catch (e) {
+        debugPrint('Error reading existing cached file: $e');
+      }
     }
 
     final client = await _ensureClient();
@@ -608,14 +680,16 @@ class WebDAVService implements CloudStorageService {
   @override
   Future<File?> saveToTempFile(String path, Uint8List? data) async {
     try {
-      final mediaData = data ?? await downloadFile(path);
-      if (mediaData == null) return null;
+      if (data != null) {
+        final tempDir = await getTemporaryDirectory();
+        final fileName = path.split('/').last;
+        final tempFile = File('${tempDir.path}/$fileName');
+        await tempFile.writeAsBytes(data);
+        return tempFile;
+      }
 
-      final tempDir = await getTemporaryDirectory();
-      final fileName = path.split('/').last;
-      final tempFile = File('${tempDir.path}/$fileName');
-      await tempFile.writeAsBytes(mediaData);
-      return tempFile;
+      // 如果未传入内存数据，直接使用零内存流式下载/缓存文件
+      return await downloadToFile(path);
     } catch (e) {
       debugPrint('Error saving to temp file: $e');
       return null;

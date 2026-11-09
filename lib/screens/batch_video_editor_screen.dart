@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
 import 'package:get_thumbnail_video/index.dart';
 import 'package:video_trimmer/video_trimmer.dart';
 import 'package:get_thumbnail_video/video_thumbnail.dart';
@@ -129,13 +131,27 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
     return '$minutes:$seconds';
   }
 
-  Future<void> _saveCurrentVideo() async {
-    setState(() {
-      _progressVisibility = true;
-    });
+  bool _hasUnsavedTrim() {
+    final state = _videoStates[_currentIndex];
+    final savedStart = state['startValue'] as double? ?? 0.0;
+    final savedEnd = state['endValue'] as double? ?? 0.0;
+
+    // 如果与上次保存的值差异超过 300 毫秒，判定为有待保存的剪辑改动
+    final valuesChanged =
+        (_startValue - savedStart).abs() > 300 || (_endValue - savedEnd).abs() > 300;
+    return valuesChanged;
+  }
+
+  Future<bool> _saveCurrentVideo({bool silent = false}) async {
+    final completer = Completer<bool>();
+    if (!silent && mounted) {
+      setState(() {
+        _progressVisibility = true;
+      });
+    }
 
     try {
-      _trimmer.saveTrimmedVideo(
+      await _trimmer.saveTrimmedVideo(
         startValue: _startValue,
         endValue: _endValue,
         onSave: (String? trimmedPath) {
@@ -148,34 +164,49 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
             final originalStat = originalFile.statSync();
             trimmedFile.setLastModifiedSync(originalStat.modified);
 
-            // 保存编辑状态
+            // 保存编辑状态与最新的滑块数值
             _videoStates[_currentIndex]['isEdited'] = true;
             _videoStates[_currentIndex]['trimmedPath'] = trimmedPath;
+            _videoStates[_currentIndex]['startValue'] = _startValue;
+            _videoStates[_currentIndex]['endValue'] = _endValue;
+            completer.complete(true);
+          } else {
+            completer.complete(false);
           }
-          setState(() {
-            _progressVisibility = false;
-          });
+          if (mounted) {
+            setState(() {
+              _progressVisibility = false;
+            });
+          }
         },
       );
     } catch (e) {
-      setState(() {
-        _progressVisibility = false;
-      });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('视频剪辑失败: $e')),
-        );
+        setState(() {
+          _progressVisibility = false;
+        });
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('视频剪辑失败: $e')),
+          );
+        }
       }
+      completer.complete(false);
     }
+    return completer.future;
   }
 
   void _switchToVideo(int displayIndex) async {
     final actualIndex = _displayIndexToActualIndex(displayIndex);
     if (actualIndex == _currentIndex) return;
 
-    // 保存当前视频的状态
-    _videoStates[_currentIndex]['startValue'] = _startValue;
-    _videoStates[_currentIndex]['endValue'] = _endValue;
+    // 如果当前视频有未保存的滑块变动，自动保存剪辑，防止用户的修改被静默丢弃
+    if (_hasUnsavedTrim()) {
+      await _saveCurrentVideo(silent: true);
+    } else {
+      _videoStates[_currentIndex]['startValue'] = _startValue;
+      _videoStates[_currentIndex]['endValue'] = _endValue;
+    }
 
     setState(() {
       _currentIndex = actualIndex;
@@ -239,7 +270,13 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
     return result ?? false;
   }
 
-  void _finishEditing() {
+  Future<void> _finishEditing() async {
+    // 检查当前视频是否有未保存的剪辑变动，自动保存
+    if (_hasUnsavedTrim()) {
+      setState(() => _progressVisibility = true);
+      await _saveCurrentVideo(silent: true);
+    }
+
     // 收集所有编辑结果，返回修改后的 MediaFile 列表（过滤掉被移除的视频）
     final results = <file_utils.MediaFile>[];
     for (int i = 0; i < widget.mediaFiles.length; i++) {
@@ -266,7 +303,9 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
       }
     }
 
-    Navigator.of(context).pop(results);
+    if (mounted) {
+      Navigator.of(context).pop(results);
+    }
   }
 
   @override
@@ -275,6 +314,8 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
     final primaryColor = Theme.of(context).primaryColor;
     const backgroundColor = Colors.black;
     const surfaceColor = Color(0xFF1E1E1E);
+
+    final displayIndex = _activeVideoIndices.indexOf(_currentIndex);
 
     return PopScope(
       canPop: false,
@@ -294,7 +335,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
           title: Text(
-            '编辑视频 (${_currentIndex + 1}/${_removedVideos.where((removed) => !removed).length})',
+            '编辑视频 (${displayIndex + 1}/${_activeVideoIndices.length})',
             style: const TextStyle(color: Colors.white, fontSize: 18),
           ),
           leading: IconButton(
@@ -371,10 +412,14 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                         trimmer: _trimmer,
                         viewerHeight: 50,
                         viewerWidth: MediaQuery.of(context).size.width - 32,
-                        onChangeStart: (value) =>
-                            setState(() => _startValue = value),
-                        onChangeEnd: (value) =>
-                            setState(() => _endValue = value),
+                        onChangeStart: (value) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _startValue = value);
+                        },
+                        onChangeEnd: (value) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _endValue = value);
+                        },
                         onChangePlaybackState: (value) =>
                             setState(() => _isPlaying = value),
                         // 样式参数
@@ -392,7 +437,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                         children: [
                           Text(
                               _formatDuration(
-                                  Duration(seconds: _startValue.toInt())),
+                                  Duration(milliseconds: _startValue.toInt())),
                               style: const TextStyle(color: Colors.white70)),
 
                           // 播放控制区
@@ -431,7 +476,7 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
 
                           Text(
                               _formatDuration(
-                                  Duration(seconds: _endValue.toInt())),
+                                  Duration(milliseconds: _endValue.toInt())),
                               style: const TextStyle(color: Colors.white70)),
                         ],
                       ),
@@ -499,13 +544,27 @@ class _BatchVideoEditorScreenState extends State<BatchVideoEditorScreen> {
                                       bottom: 4,
                                       right: 12, // 考虑 margin
                                       child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: const BoxDecoration(
-                                          color: Colors.green,
-                                          shape: BoxShape.circle,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.shade600,
+                                          borderRadius:
+                                              BorderRadius.circular(4),
                                         ),
-                                        child: const Icon(Icons.check,
-                                            size: 12, color: Colors.white),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.check,
+                                                size: 10, color: Colors.white),
+                                            SizedBox(width: 2),
+                                            Text('已剪辑',
+                                                style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 9,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                          ],
+                                        ),
                                       ),
                                     ),
 

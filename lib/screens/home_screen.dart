@@ -772,9 +772,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _updateUploadProgress({bool isRestoring = false}) {
     final hasActiveTasks = MediaUploadService.hasActiveUploads();
-    final progressText = hasActiveTasks
-        ? '${MediaUploadService.getCompletedTasks()}/${MediaUploadService.getTotalTasks()}'
-        : '';
+    String progressText = '';
+    if (hasActiveTasks) {
+      final completed = MediaUploadService.getCompletedTasks();
+      final total = MediaUploadService.getTotalTasks();
+      final currentProgress = MediaUploadService.getCurrentTaskProgress();
+      if (currentProgress > 0 && currentProgress < 1.0) {
+        progressText = '$completed/$total · ${(currentProgress * 100).toInt()}%';
+      } else {
+        progressText = '$completed/$total';
+      }
+    }
 
     _uploadProgressNotifier.value = UploadProgressData(
         hasActiveTasks, progressText,

@@ -11,6 +11,8 @@ abstract class CloudStorageService {
   Future<List<DiaryEntry>> loadAllEntries();
   Future<List<DiaryEntry>> loadEntriesPage(int offset, int limit);
   Future<Uint8List?> downloadFile(String path);
+  Future<File?> downloadToFile(String path,
+      {String? targetFilePath, Function(double)? onProgress});
   Future<bool> fileExists(String path);
   Future<bool> uploadFile(String path, File file,
       {Function(double)? onProgress});

@@ -86,6 +86,43 @@ class FileCache {
   }
 
   String _generateCacheFileName(String key) {
-    return md5.convert(utf8.encode(key)).toString();
+    final hash = md5.convert(utf8.encode(key)).toString();
+    final extIndex = key.lastIndexOf('.');
+    if (extIndex != -1 && extIndex > key.lastIndexOf('/')) {
+      final ext = key.substring(extIndex);
+      return '$hash$ext';
+    }
+    return hash;
+  }
+
+  /// 获取指定 key 对应的缓存文件对象（不保证文件已存在）
+  File getCacheFile(String key) {
+    final cacheFileName = _generateCacheFileName(key);
+    return File('${_cacheDir!.path}/$cacheFileName');
+  }
+
+  /// 检查并获取已存在的本地缓存文件，如果未命中则返回 null（支持兼容无扩展名的旧缓存）
+  Future<File?> getExistingFile(String key) async {
+    if (!_initialized || _cacheDir == null) return null;
+
+    final file = getCacheFile(key);
+    if (await file.exists()) {
+      return file;
+    }
+
+    // 兼容历史版本没有扩展名的缓存文件名
+    final legacyHash = md5.convert(utf8.encode(key)).toString();
+    final legacyFile = File('${_cacheDir!.path}/$legacyHash');
+    if (await legacyFile.exists()) {
+      return legacyFile;
+    }
+
+    return null;
+  }
+
+  /// 检查是否存在缓存文件
+  Future<bool> has(String key) async {
+    final file = await getExistingFile(key);
+    return file != null;
   }
 }

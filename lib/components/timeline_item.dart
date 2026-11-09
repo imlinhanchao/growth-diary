@@ -424,6 +424,7 @@ class _TimelineItemState extends State<TimelineItem> {
           MaterialPageRoute(
             builder: (context) => FullScreenImageView(
               imagePaths: widget.entry.imagePaths,
+              thumbnailPaths: widget.entry.imageThumbnails,
               webdavService: widget.webdavService,
               initialIndex: index,
               onSetAsCoverImage:

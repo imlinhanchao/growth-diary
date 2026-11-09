@@ -109,6 +109,7 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
       MaterialPageRoute(
         builder: (context) => FullScreenImageView(
           imagePaths: widget.entry.imagePaths,
+          thumbnailPaths: widget.entry.imageThumbnails,
           webdavService: widget.cloudService,
           initialIndex: initialIndex,
           onSetAsCoverImage:
