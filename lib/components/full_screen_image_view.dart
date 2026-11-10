@@ -372,8 +372,8 @@ class _ZoomableImageViewState extends State<_ZoomableImageView>
       final x = -tapPos.dx * (targetScale - 1);
       final y = -tapPos.dy * (targetScale - 1);
       endMatrix = Matrix4.identity()
-        ..translate(x, y)
-        ..scale(targetScale);
+        ..translateByDouble(x, y, 0.0, 1.0)
+        ..scaleByDouble(targetScale, targetScale, targetScale, 1.0);
     }
 
     _zoomAnimation = Matrix4Tween(
