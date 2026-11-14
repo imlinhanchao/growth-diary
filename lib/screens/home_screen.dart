@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../models/app_config.dart';
 import '../models/diary_entry.dart';
 import '../services/cloud_storage_service.dart';
+import '../services/diary_repository.dart';
+import '../services/local_diary_cache.dart';
 import '../services/media_upload_service.dart';
 import '../services/entry_creation_service.dart';
 import '../utils/age_calculator.dart';
@@ -59,9 +63,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<DiaryEntry> _entries = [];
+  int _entriesRevision = 0;
+  List<TvMediaItem>? _tvMediaCache;
+  int _tvMediaCacheRevision = -1;
+  int _tvMediaCacheFilter = -1;
+  DiaryRepository? _repository;
+  bool _offlineHintShown = false;
   bool _isLoading = true;
-  bool _isLoadingMore = false;
-  bool _hasMoreData = true;
+  final bool _isLoadingMore = false;
   String? _errorMessage;
   final Map<String, Uint8List?> _thumbnailCache = {};
   final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
@@ -77,7 +86,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late AppConfig currentConfig;
   final ScrollController _scrollController = ScrollController();
   final ScrollController _tvScrollController = ScrollController();
-  static const int _pageSize = 10;
   DateTime? _targetMonth;
 
   /// 宽屏双栏模式下当前选中的条目（右侧详情面板显示）
@@ -245,41 +253,128 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadEntries() async {
-    debugPrint('Loading entries...');
-    setState(() {
-      _isLoading = true;
-      _entries.clear();
-      _hasMoreData = true;
-      _errorMessage = null;
-    });
-
+  Future<DiaryRepository?> _ensureRepository() async {
+    final existing = _repository;
+    if (existing != null) return existing;
     try {
-      final entries = await widget.cloudService.loadAllEntries();
-      debugPrint('Loaded ${entries.length} entries');
-      setState(() {
-        _entries = entries;
-        _isLoading = false;
-        _hasMoreData = entries.length == _pageSize;
-      });
-
-      // 加载封面图像
-      _loadCoverImage();
+      final docs = await getApplicationDocumentsDirectory();
+      final baseDir =
+          Directory('${docs.path}/growth_diary_cache/${currentConfig.id}');
+      final repo = DiaryRepository(
+        configId: currentConfig.id,
+        cloud: widget.cloudService,
+        cache: LocalDiaryCache(baseDir: baseDir),
+      );
+      _repository = repo;
+      return repo;
     } catch (e) {
-      debugPrint('Error loading entries: $e');
+      debugPrint('初始化本地缓存失败: $e');
+      return null;
+    }
+  }
+
+  /// 本地优先加载：先渲染缓存，再后台对账。
+  Future<void> _loadEntries({bool forceSync = false}) async {
+    final total = Stopwatch()..start();
+    final repo = await _ensureRepository();
+    if (repo == null) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString();
+        _errorMessage = '本地缓存目录不可用';
       });
+      return;
     }
+
+    setState(() => _errorMessage = null);
+
+    // 2a. 先读索引（单个小文件），只解析首屏需要的一页正文，尽快出第一帧
+    final indexWatch = Stopwatch()..start();
+    final metas = await repo.loadIndexMetas();
+    indexWatch.stop();
+
+    const firstPageSize = 12;
+    var firstPage = <DiaryEntry>[];
+    if (metas.isNotEmpty) {
+      final pageWatch = Stopwatch()..start();
+      firstPage = await repo.loadEntries(metas.take(firstPageSize).map((m) => m.id));
+      pageWatch.stop();
+      if (!mounted) return;
+      setState(() {
+        _entries = firstPage;
+        _entriesRevision++;
+        _isLoading = false;
+      });
+      debugPrint('[perf] first paint: ${total.elapsedMilliseconds}ms '
+          '(索引 ${indexWatch.elapsedMilliseconds}ms, '
+          '首屏 ${firstPage.length} 条 ${pageWatch.elapsedMilliseconds}ms)');
+      _loadCoverImage();
+    } else {
+      setState(() => _isLoading = true);
+    }
+
+    // 2b. 背景补齐剩余条目：纯本地读取，不发请求
+    if (metas.length > firstPageSize) {
+      final restWatch = Stopwatch()..start();
+      final rest = await repo.loadEntries(
+          metas.skip(firstPageSize).map((m) => m.id));
+      restWatch.stop();
+      if (!mounted) return;
+      setState(() {
+        _entries = [...firstPage, ...rest];
+        _entriesRevision++;
+      });
+      debugPrint('[perf] rest loaded: ${rest.length} 条 in '
+          '${restWatch.elapsedMilliseconds}ms');
+    }
+
+    // 3. 后台对账：1 次 PROPFIND + 变更条目
+    final report = await repo.sync(force: forceSync);
+    if (!mounted) return;
+    debugPrint('[perf] sync done: $report');
+
+    if (report.error != null) {
+      setState(() {
+        _isLoading = false;
+        if (_entries.isEmpty) {
+          _errorMessage = report.error.toString();
+        }
+      });
+      if (_entries.isNotEmpty) _showOfflineHint();
+      return;
+    }
+
+    _offlineHintShown = false;
+    if (report.hasChanges || _entries.isEmpty) {
+      final all = await repo.loadCached();
+      if (!mounted) return;
+      setState(() {
+        _entries = all;
+        _entriesRevision++;
+        _isLoading = false;
+      });
+      _loadCoverImage(forceRefresh: true);
+    } else {
+      setState(() => _isLoading = false);
+    }
+    debugPrint('[perf] entries ready: ${_entries.length} 条');
+  }
+
+  void _showOfflineHint() {
+    if (_offlineHintShown) return;
+    _offlineHintShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('离线模式：显示本地缓存，数据可能不是最新'),
+      duration: Duration(seconds: 4),
+    ));
   }
 
   Future<void> _onRefresh() async {
     // 先获取最新的配置
     await _reloadLatestConfig();
 
-    // 重新加载条目
-    await _loadEntries();
+    // 重新加载条目（下拉刷新强制对账）
+    await _loadEntries(forceSync: true);
 
     // 强制重新加载封面图（忽略缓存）
     await _loadCoverImage(forceRefresh: true);
@@ -291,7 +386,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // 删除条目
       setState(() {
         _entries.removeWhere((entry) => entry.id == originalEntry.id);
+        _entriesRevision++;
       });
+      await _repository?.forgetEntry(originalEntry.id);
     } else if (result.updatedEntry != null) {
       // 更新条目
       setState(() {
@@ -299,8 +396,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _entries.indexWhere((entry) => entry.id == originalEntry.id);
         if (index != -1) {
           _entries[index] = result.updatedEntry!;
+          _entriesRevision++;
         }
       });
+      await _repository?.cacheEntry(result.updatedEntry!);
     }
   }
 
@@ -328,12 +427,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // 清除当前数据
     setState(() {
       _entries.clear();
+      _entriesRevision++;
       _thumbnailCache.clear();
       _thumbnailFutures.clear();
       _coverImageData = null; // 清除封面图缓存
       _isLoadingCoverImage = false; // 重置加载状态
       _isLoading = true;
-      _hasMoreData = true;
+      _repository = null; // 换宝宝后缓存目录也跟着换
+      _offlineHintShown = false;
     });
 
     // 重新加载数据
@@ -341,30 +442,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadMoreEntries() async {
-    if (_isLoadingMore || !_hasMoreData) return;
-
-    setState(() {
-      _isLoadingMore = true;
-    });
-
-    try {
-      final newEntries =
-          await widget.cloudService.loadEntriesPage(_entries.length, _pageSize);
-      setState(() {
-        _entries.addAll(newEntries);
-        _isLoadingMore = false;
-        _hasMoreData = newEntries.length == _pageSize;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingMore = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('加载更多失败: $e')),
-        );
-      }
-    }
+    // Phase 1：条目已全部从本地索引加载，滚动不再触发网络请求。
+    // 列表按需构建，这里保持空实现以兼容现有滚动回调。
   }
 
   void _onScroll() {
@@ -2284,6 +2363,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ──────────────────────────────────────────
 
   List<TvMediaItem> _getTvMediaItems() {
+    // TV 布局每次 build 都会调用这里，2000 条时全量展开很贵：
+    // 按"条目修订号 + 过滤条件"缓存，列表变化时才重算。
+    final cached = _tvMediaCache;
+    if (cached != null &&
+        _tvMediaCacheRevision == _entriesRevision &&
+        _tvMediaCacheFilter == _tvFilterIndex) {
+      return cached;
+    }
     final List<TvMediaItem> items = [];
     for (final entry in _entries) {
       if (_tvFilterIndex == 0 || _tvFilterIndex == 1) {
@@ -2315,6 +2402,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       }
     }
+    _tvMediaCache = items;
+    _tvMediaCacheRevision = _entriesRevision;
+    _tvMediaCacheFilter = _tvFilterIndex;
     return items;
   }
 

@@ -201,100 +201,66 @@ class WebDAVService implements CloudStorageService {
     }
   }
 
-  Future<List<DiaryEntry>> _loadEntriesFromDirectory([webdav.Client? client]) async {
-    final activeClient = client ?? await _ensureClient();
-    if (activeClient == null) return [];
+  @override
+  Future<List<RemoteEntryMeta>> listEntryMeta() async {
+    final client = await _ensureClient();
+    if (client == null || _id == null) return const [];
 
-    final files = await activeClient.readDir(_getEntriesPath());
-    final entries = <DiaryEntry>[];
-
-    for (var file in files) {
-      if (file.name != null && file.name!.endsWith('.json')) {
-        try {
-          final content =
-              await activeClient.read('${_getEntriesPath()}/${file.name}');
-          final jsonData = jsonDecode(utf8.decode(content));
-          final entry = DiaryEntry.fromJson(jsonData);
-          entries.add(entry);
-        } catch (e) {
-          debugPrint('Error loading entry ${file.name}: $e');
-        }
+    final files = await client.readDir(_getEntriesPath());
+    final metas = <RemoteEntryMeta>[];
+    for (final file in files) {
+      final name = file.name;
+      if (name == null || !name.endsWith('.json') || file.isDir == true) {
+        continue;
       }
+      metas.add(RemoteEntryMeta(
+        id: name.substring(0, name.length - '.json'.length),
+        etag: file.eTag,
+        mtimeMs: file.mTime?.millisecondsSinceEpoch ?? 0,
+        size: file.size ?? 0,
+      ));
     }
+    return metas;
+  }
 
-    // Sort by date descending
-    entries.sort((a, b) => b.date.compareTo(a.date));
+  @override
+  Future<DiaryEntry?> readEntry(String id) async {
+    final client = await _ensureClient();
+    if (client == null || _id == null) return null;
+    try {
+      final content = await client.read('${_getEntriesPath()}/$id.json');
+      final jsonData = jsonDecode(utf8.decode(content));
+      return DiaryEntry.fromJson(jsonData as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('Error reading entry $id: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<List<DiaryEntry>> readEntries(List<String> ids,
+      {int concurrency = 4}) async {
+    if (ids.isEmpty) return const [];
+    final entries = <DiaryEntry>[];
+    final safeConcurrency = concurrency < 1 ? 1 : concurrency;
+    for (var i = 0; i < ids.length; i += safeConcurrency) {
+      final end = (i + safeConcurrency).clamp(0, ids.length);
+      final chunk = ids.sublist(i, end);
+      final loaded = await Future.wait(chunk.map(readEntry));
+      entries.addAll(loaded.whereType<DiaryEntry>());
+    }
     return entries;
   }
 
   @override
   Future<List<DiaryEntry>> loadAllEntries() async {
-    final client = await _ensureClient();
-    debugPrint(
-        'Loading entries for id: $_id, client initialized: ${client != null}');
-    if (client == null || _id == null) return [];
-
-    // 等待一小段时间，确保连接稳定
-    await Future.delayed(const Duration(milliseconds: 100));
-
     try {
-      return await _loadEntriesFromDirectory(client);
-    } catch (e) {
-      debugPrint('Error loading entries: $e');
-      // 如果是认证错误，等待更长时间后重试一次
-      if (e.toString().contains('401') ||
-          e.toString().contains('Unauthorized')) {
-        debugPrint('Retrying after authentication error...');
-        await Future.delayed(const Duration(milliseconds: 500));
-        try {
-          return await _loadEntriesFromDirectory(client);
-        } catch (retryError) {
-          debugPrint('Retry also failed: $retryError');
-        }
-      }
-      return [];
-    }
-  }
-
-  @override
-  Future<List<DiaryEntry>> loadEntriesPage(int offset, int limit) async {
-    final client = await _ensureClient();
-    if (client == null || _id == null) return [];
-
-    try {
-      final files = await client.readDir(_getEntriesPath());
-      final jsonFiles = files
-          .where((file) => file.name != null && file.name!.endsWith('.json'))
-          .toList();
-
-      // Sort files by modification time descending (newest first)
-      jsonFiles.sort((a, b) {
-        final aTime = a.mTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.mTime ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return bTime.compareTo(aTime);
-      });
-
-      final entries = <DiaryEntry>[];
-      final startIndex = offset;
-      final endIndex = (offset + limit).clamp(0, jsonFiles.length);
-
-      for (var i = startIndex; i < endIndex; i++) {
-        final file = jsonFiles[i];
-        try {
-          final content =
-              await client.read('${_getEntriesPath()}/${file.name}');
-          final jsonData = jsonDecode(utf8.decode(content));
-          entries.add(DiaryEntry.fromJson(jsonData));
-        } catch (e) {
-          debugPrint('Error loading entry ${file.name}: $e');
-        }
-      }
-
-      // Sort by date descending as final ordering
+      final metas = await listEntryMeta();
+      final entries = await readEntries(metas.map((m) => m.id).toList());
       entries.sort((a, b) => b.date.compareTo(a.date));
       return entries;
     } catch (e) {
-      debugPrint('Error loading entries page: $e');
+      debugPrint('Error loading entries: $e');
       return [];
     }
   }
