@@ -7,6 +7,10 @@ class LocalStorageService {
   static const String _configsKey = 'app_configs';
   static const String _currentConfigIdKey = 'current_config_id';
   static const String _deviceIdKey = 'device_id';
+  static const String _mediaCacheLimitKey = 'media_cache_limit_mb';
+
+  /// 媒体缓存默认上限（MB），0 表示不限制
+  static const int defaultMediaCacheLimitMb = 500;
 
   Future<void> saveConfig(AppConfig config) async {
     final prefs = await SharedPreferences.getInstance();
@@ -75,6 +79,16 @@ class LocalStorageService {
     final created = const Uuid().v4();
     await prefs.setString(_deviceIdKey, created);
     return created;
+  }
+
+  Future<int> getMediaCacheLimitMb() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_mediaCacheLimitKey) ?? defaultMediaCacheLimitMb;
+  }
+
+  Future<void> setMediaCacheLimitMb(int mb) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_mediaCacheLimitKey, mb);
   }
 
   Future<String?> getString(String key) async {

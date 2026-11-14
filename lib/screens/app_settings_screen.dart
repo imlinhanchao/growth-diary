@@ -32,11 +32,69 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   final LocalStorageService _localStorage = LocalStorageService();
   final ScreenshotController _screenshotController = ScreenshotController();
   late AppConfig _config;
+  int _mediaCacheLimitMb = LocalStorageService.defaultMediaCacheLimitMb;
 
   @override
   void initState() {
     super.initState();
     _config = widget.config;
+    _loadMediaCacheLimit();
+  }
+
+  Future<void> _loadMediaCacheLimit() async {
+    final limit = await _localStorage.getMediaCacheLimitMb();
+    if (!mounted) return;
+    setState(() => _mediaCacheLimitMb = limit);
+  }
+
+  Future<void> _pickMediaCacheLimit() async {
+    const options = <int, String>{
+      200: '200 MB',
+      500: '500 MB',
+      1024: '1 GB',
+      0: '不限制',
+    };
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('媒体缓存上限'),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text(
+              '超出上限后按最旧优先自动清理，下次启动生效。',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ),
+          for (final entry in options.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, entry.key),
+              child: Row(
+                children: [
+                  Icon(
+                    entry.key == _mediaCacheLimitMb
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
+                    size: 20,
+                    color: entry.key == _mediaCacheLimitMb
+                        ? Colors.pink
+                        : Colors.grey.shade400,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(entry.value),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await _localStorage.setMediaCacheLimitMb(picked);
+    if (!mounted) return;
+    setState(() => _mediaCacheLimitMb = picked);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('媒体缓存上限已设为 ${picked == 0 ? '不限制' : '$picked MB'}，下次启动生效')),
+    );
   }
 
   Future<void> _showQRCode() async {
@@ -372,6 +430,16 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               subtitle: '生成包含宝宝配置信息的二维码',
               onTap: _showQRCode,
               iconColor: Colors.blue,
+            ),
+            _buildDivider(),
+            _buildSettingsTile(
+              icon: Icons.sd_storage_outlined,
+              title: '媒体缓存上限',
+              subtitle: _mediaCacheLimitMb == 0
+                  ? '当前不限制，超出后不自动清理'
+                  : '当前 ${_mediaCacheLimitMb}MB，超出后按最旧优先清理',
+              onTap: _pickMediaCacheLimit,
+              iconColor: Colors.teal,
             ),
             _buildDivider(),
             _buildSettingsTile(

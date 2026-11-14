@@ -135,7 +135,13 @@ class WebDAVService implements CloudStorageService {
 
     // 初始化文件缓存；容量清理放后台，不阻塞启动
     await _fileCache.initialize();
-    unawaited(_fileCache.enforceLimit());
+    final limitMb = await _localStorage.getMediaCacheLimitMb();
+    if (limitMb > 0) {
+      unawaited(_fileCache.enforceLimit(
+        maxBytes: limitMb * 1024 * 1024,
+        force: true,
+      ));
+    }
 
     final client = await _ensureClient();
     if (client != null && _id != null) {
