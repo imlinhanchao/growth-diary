@@ -43,7 +43,8 @@ void main(List<String> args) async {
   }
 
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-  server.autoCompress = false;
+  // 与真实服务端一致：按客户端 Accept-Encoding 压缩响应
+  server.autoCompress = true;
   stdout.writeln('DAV fixture listening on http://0.0.0.0:$port (root=$rootPath)');
 
   server.listen((req) {

@@ -184,7 +184,9 @@ class WdDio with DioMixin implements Dio {
       options.headers?['content-type'] = 'application/xml;charset=UTF-8';
       options.headers?['accept'] = 'application/xml,text/xml';
       options.headers?['accept-charset'] = 'utf-8';
-      options.headers?['accept-encoding'] = '';
+      // [growth_diary] 允许 gzip：2000 条时 PROPFIND 响应约 1MB，
+      // 压缩后约 1/6。dart:io 的 HttpClient 会自动解压。
+      options.headers?['accept-encoding'] = 'gzip';
     }, cancelToken: cancelToken);
 
     if (resp.statusCode != 207) {

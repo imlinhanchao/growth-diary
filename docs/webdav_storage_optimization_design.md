@@ -273,7 +273,7 @@ sync():
 
 实测收益（500 条）：首次安装请求 1027 → 518，同步耗时 39.8s → 23.9s；稳态请求同步减少（config 读取与缩略图下载各自少一次往返）。
 
-PROPFIND 的 gzip 还没开：该库把 `accept-encoding` 写死为空，改库后 Dart 的解压链路需要单独验证，留到分片阈值触发时一起做。
+PROPFIND 的 gzip 已开启（vendoring 时把 `accept-encoding` 从空改成 `gzip`，dart:io 自动解压）。实测 2000 条的目录响应 1,044,892 → 27,228 字节，暖启动同步耗时 942ms → 587ms。
 
 ---
 
@@ -321,7 +321,7 @@ PROPFIND 的 gzip 还没开：该库把 `accept-encoding` 写死为空，改库�
 | 引入 `manifest.json` | 分片后当年目录的 PROPFIND 仍 > 300 KB，且实测"无变更打开"占比 > 80% |
 | 本地 SQLite | 条目数 > 20000，或出现跨字段复合查询需求 |
 
-> 阈值按**未压缩**的 PROPFIND 响应评估：该库把 `accept-encoding` 写死为空，目录响应是原样 XML。如果将来通过 vendoring 打开 gzip（XML 通常可压到 1/8 左右），上面三条流量阈值可以整体放宽，先复测再决定。
+> 阈值原先按**未压缩**的 PROPFIND 评估。现在已经通过 vendoring 打开 gzip：2000 条的 depth-1 PROPFIND 从 1,044,892 字节压到 27,228 字节（约 38 倍），上面三条流量阈值基本失效，真正约束改成"单次 PROPFIND 解析耗时"和"目录条目数"，下次实测后再定。
 
 ### 5.2 分片方案
 
@@ -447,7 +447,7 @@ PROPFIND 的 gzip 还没开：该库把 `accept-encoding` 写死为空，改库�
 | `lib/utils/cache_eviction.dart` | 新增 | 按最后修改时间淘汰旧缓存文件（纯 Dart，可测） |
 | `lib/services/file_cache.dart` | 改动 | 500MB 上限 + 5 分钟节流 + 支持注入目录 |
 | `lib/services/local_storage_service.dart` | 改动 | 设备 ID（用于冲突裁决标识写入方） |
-| `depends/webdav_client-1.2.2/` | 新增 | vendoring 的 WebDAV 客户端，去掉 4 处 OPTIONS 预检 |
+| `depends/webdav_client-1.2.2/` | 新增 | vendoring 的 WebDAV 客户端：去掉 4 处 OPTIONS 预检、PROPFIND 开启 gzip |
 | `pubspec.yaml` | 改动 | 增加 webdav_client 的 path override |
 | `lib/screens/home_screen.dart` | 改动 | 接入 `DiaryRepository`：索引→首屏 12 条→后台补全→对账；离线提示；滚动不再发网络请求；编辑/删除同步更新本地缓存 |
 | `tool/dav_test_server.dart` | 新增 | 本地 WebDAV 夹具：PROPFIND/GET/PUT/DELETE/MKCOL，可注入延迟与失败，`/__stats` 统计请求数 |
