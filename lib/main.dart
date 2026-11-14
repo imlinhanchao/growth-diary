@@ -80,47 +80,27 @@ class _SplashScreenState extends State<SplashScreen> {
 
       debugPrint('Using config id: $configId, webdavUrl: ${config.webdavUrl}');
 
+      // 初始化只做本地准备（不建目录、不联网），避免服务器不可达时卡在启动页
       try {
-        // Initialize WebDAV service
         await _webdavService.initialize(config);
-
-        // Try to load config from WebDAV (might have been updated)
-        final webdavConfig = await _webdavService.loadConfig();
-        final finalConfig = webdavConfig ?? config;
-
-        debugPrint('WebDAV config loaded: ${webdavConfig != null}');
-
-        // 更新配置到configs中
-        configs[configId] = finalConfig;
-        await _localStorage.saveAllConfigs(configs);
-
-        if (!mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => HomeScreen(
-              configs: configs,
-              currentConfigId: configId,
-              cloudService: _webdavService,
-              localStorage: _localStorage,
-              onConfigChanged: _handleConfigChanged,
-            ),
-          ),
-        );
       } catch (e) {
-        // If WebDAV fails, still go to home with local config
-        if (!mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => HomeScreen(
-              configs: configs,
-              currentConfigId: configId,
-              cloudService: _webdavService,
-              localStorage: _localStorage,
-              onConfigChanged: _handleConfigChanged,
-            ),
-          ),
-        );
+        debugPrint('WebDAV 初始化失败（不影响本地浏览）: $e');
       }
+
+      // 远端配置由 HomeScreen 在首屏之后自己刷新并保存，这里不再重复拉一次
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => HomeScreen(
+            configs: configs,
+            currentConfigId: configId,
+            cloudService: _webdavService,
+            localStorage: _localStorage,
+            onConfigChanged: _handleConfigChanged,
+          ),
+        ),
+      );
     } else {
       // No configs found, show setup screen
       if (!mounted) return;

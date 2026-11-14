@@ -2,6 +2,39 @@ import '../models/diary_entry.dart';
 import 'cloud_storage_service.dart';
 import 'local_diary_cache.dart';
 
+/// 给用户看的同步错误。toString 直接作为 UI 文案，原始异常留在 cause 里打日志。
+class SyncError implements Exception {
+  SyncError(this.message, [this.cause]);
+
+  final String message;
+  final Object? cause;
+
+  @override
+  String toString() => message;
+}
+
+Object friendlySyncError(Object error) {
+  final text = error.toString().toLowerCase();
+  if (text.contains('401') || text.contains('unauthorized')) {
+    return SyncError('WebDAV 账号或密码不正确，请在设置里检查', error);
+  }
+  if (text.contains('403') || text.contains('forbidden')) {
+    return SyncError('WebDAV 拒绝访问，请检查账号权限或目录设置', error);
+  }
+  if (text.contains('404') || text.contains('not found')) {
+    return SyncError('远端目录不存在，请检查 WebDAV 地址', error);
+  }
+  if (text.contains('timeout') ||
+      text.contains('timed out') ||
+      text.contains('connection') ||
+      text.contains('socket') ||
+      text.contains('network') ||
+      text.contains('unreachable')) {
+    return SyncError('无法连接 WebDAV 服务器，请检查网络或服务器地址', error);
+  }
+  return SyncError('同步失败，请稍后重试', error);
+}
+
 /// 一次同步的结果。error 非空表示这次对账失败，本地数据仍可用。
 class SyncReport {
   const SyncReport({
@@ -38,6 +71,7 @@ class DiaryRepository {
     required this.cloud,
     required this.cache,
     this.minSyncInterval = const Duration(seconds: 60),
+    this.log,
   });
 
   final String configId;
@@ -46,6 +80,9 @@ class DiaryRepository {
 
   /// 两次自动同步的最小间隔，避免切前台、切宝宝频繁触发 PROPFIND
   final Duration minSyncInterval;
+
+  /// 日志回调（保持本类不依赖 Flutter，调用方传 debugPrint 即可）
+  final void Function(String message)? log;
 
   bool _syncing = false;
 
@@ -227,7 +264,8 @@ class DiaryRepository {
         elapsed: stopwatch.elapsed,
       );
     } catch (e) {
-      return SyncReport(error: e, elapsed: stopwatch.elapsed);
+      log?.call('[sync] 同步失败: $e');
+      return SyncReport(error: friendlySyncError(e), elapsed: stopwatch.elapsed);
     } finally {
       _syncing = false;
     }

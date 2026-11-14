@@ -79,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _tvPrefixFilter = -1;
   DiaryRepository? _repository;
   bool _offlineHintShown = false;
+  bool _configRefreshedThisSession = false;
   bool _isFirstBootstrap = false;
   int _bootstrapDone = 0;
   int _bootstrapTotal = 0;
@@ -292,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         configId: currentConfig.id,
         cloud: widget.cloudService,
         cache: LocalDiaryCache(baseDir: baseDir),
+        log: debugPrint,
       );
       _repository = repo;
       return repo;
@@ -418,6 +420,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() => _isLoading = false);
     }
     debugPrint('[perf] entries ready: ${_entries.length} 条');
+
+    // 启动页不再阻塞拉远端配置，这里补一次（失败静默，不影响浏览）
+    if (!_configRefreshedThisSession) {
+      _configRefreshedThisSession = true;
+      unawaited(_reloadLatestConfig());
+    }
   }
 
   /// 提前把首屏可见条目的缩略图排进下载队列。

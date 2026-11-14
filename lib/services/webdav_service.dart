@@ -145,7 +145,8 @@ class WebDAVService implements CloudStorageService {
 
     final client = await _ensureClient();
     if (client != null && _id != null) {
-      await _ensureDirectories(client);
+      // 不阻塞启动：目录创建放后台，首次写入失败时会重试一次
+      unawaited(_ensureDirectories(client));
     }
   }
 
@@ -165,10 +166,13 @@ class WebDAVService implements CloudStorageService {
 
   /// 目录只在首次连接时创建。之前每次启动都发 4 次 MKCOL，
   /// 稳态请求里它占了 8 次（含 OPTIONS），纯属浪费。
-  Future<void> _ensureDirectories(webdav.Client client) async {
+  Future<void> _ensureDirectories(webdav.Client client,
+      {bool force = false}) async {
     final readyKey = _dirsReadyKey();
-    final ready = await _localStorage.getString(readyKey);
-    if (ready == '1') return;
+    if (!force) {
+      final ready = await _localStorage.getString(readyKey);
+      if (ready == '1') return;
+    }
 
     final dirs = [
       _getBasePath(),
@@ -267,10 +271,18 @@ class WebDAVService implements CloudStorageService {
   Future<void> _writeEntryFile(DiaryEntry entry) async {
     final client = await _ensureClient();
     if (client == null || _id == null) return;
-    await client.write(
-      '${_getEntriesPath()}/${entry.id}.json',
-      utf8.encode(jsonEncode(entry.toJson())),
-    );
+    final path = '${_getEntriesPath()}/${entry.id}.json';
+    final bytes = utf8.encode(jsonEncode(entry.toJson()));
+    try {
+      await client.write(path, bytes);
+    } catch (e) {
+      // 目录可能刚被服务端清掉（首次启动时目录创建是后台任务），
+      // 重新建一次目录后重试，避免用户看到"保存失败"
+      debugPrint('写入条目失败，重建目录后重试: $e');
+      _markDirectoriesDirty();
+      await _ensureDirectories(client, force: true);
+      await client.write(path, bytes);
+    }
   }
 
   /// 远端是否已存在该条目。网络错误会向上抛，不会被当成"不存在"。
