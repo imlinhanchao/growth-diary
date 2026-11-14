@@ -132,33 +132,46 @@ class WebDAVService implements CloudStorageService {
 
     final client = await _ensureClient();
     if (client != null && _id != null) {
-      // Create base directories if they don't exist
-      final baseDir = _getBasePath();
-      try {
-        await client.mkdir(baseDir);
-      } catch (e) {
-        // Ignore if directory already exists (409 Conflict)
-        debugPrint('mkdir $baseDir: $e');
-      }
-      try {
-        await client.mkdir(_getEntriesPath());
-      } catch (e) {
-        // Ignore if directory already exists (409 Conflict)
-        debugPrint('mkdir ${_getEntriesPath()}: $e');
-      }
-      try {
-        await client.mkdir('${_getBasePath()}/media');
-      } catch (e) {
-        // Ignore if directory already exists (409 Conflict)
-        debugPrint('mkdir ${_getBasePath()}/media: $e');
-      }
-      try {
-        await client.mkdir('${_getBasePath()}/thumbnails');
-      } catch (e) {
-        // Ignore if directory already exists (409 Conflict)
-        debugPrint('mkdir ${_getBasePath()}/thumbnails: $e');
-      }
+      await _ensureDirectories(client);
     }
+  }
+
+  String _dirsReadyKey() => 'dav_dirs_ready:${_id ?? ''}:${_currentUrl ?? ''}';
+
+  void _markDirectoriesReady() {
+    final key = _dirsReadyKey();
+    unawaited(_localStorage.saveString(key, '1'));
+  }
+
+  /// 任何写失败都可能导致目录缺失（例如服务端被清理过），
+  /// 清掉标记，下次启动重新建目录。
+  void _markDirectoriesDirty() {
+    final key = _dirsReadyKey();
+    unawaited(_localStorage.remove(key));
+  }
+
+  /// 目录只在首次连接时创建。之前每次启动都发 4 次 MKCOL，
+  /// 稳态请求里它占了 8 次（含 OPTIONS），纯属浪费。
+  Future<void> _ensureDirectories(webdav.Client client) async {
+    final readyKey = _dirsReadyKey();
+    final ready = await _localStorage.getString(readyKey);
+    if (ready == '1') return;
+
+    final dirs = [
+      _getBasePath(),
+      _getEntriesPath(),
+      '${_getBasePath()}/media',
+      '${_getBasePath()}/thumbnails',
+    ];
+    await Future.wait(dirs.map((dir) async {
+      try {
+        await client.mkdir(dir);
+      } catch (e) {
+        // 目录已存在会返回 409/405，忽略
+        debugPrint('mkdir $dir: $e');
+      }
+    }));
+    _markDirectoriesReady();
   }
 
   @override
@@ -232,6 +245,7 @@ class WebDAVService implements CloudStorageService {
       return remote ?? entry;
     } catch (e) {
       debugPrint('Error saving diary entry: $e');
+      _markDirectoriesDirty();
       rethrow;
     }
   }
@@ -496,6 +510,7 @@ class WebDAVService implements CloudStorageService {
       return 'media/$fileName'; // 返回相对路径
     } catch (e) {
       debugPrint('Error uploading media: $e');
+      _markDirectoriesDirty();
       rethrow;
     }
   }
