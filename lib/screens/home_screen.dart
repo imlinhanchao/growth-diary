@@ -79,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _tvPrefixFilter = -1;
   DiaryRepository? _repository;
   bool _offlineHintShown = false;
+  bool _isFirstBootstrap = false;
   bool _isLoading = true;
   final bool _isLoadingMore = false;
   String? _errorMessage;
@@ -337,7 +338,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // 首屏缩略图提前排队下载（队列限流 4 路，不阻塞渲染）
       unawaited(_prefetchThumbnails(firstPage));
     } else {
-      setState(() => _isLoading = true);
+      setState(() {
+        _isLoading = true;
+        _isFirstBootstrap = true; // 升级后/首次安装：正在从远端建本地缓存
+      });
     }
 
     // 2b. 背景补齐剩余条目：纯本地读取，不发请求
@@ -372,6 +376,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     _offlineHintShown = false;
+    _isFirstBootstrap = false;
     if (report.hasChanges || _entries.isEmpty) {
       final all = await repo.loadCached();
       if (!mounted) return;
@@ -1168,8 +1173,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             slivers: [
               _buildSliverAppBar(),
               if (_isLoading)
-                const SliverFillRemaining(
-                    child: Center(child: CircularProgressIndicator()))
+                SliverFillRemaining(child: _buildLoadingState())
               else if (_errorMessage != null)
                 SliverFillRemaining(child: _buildErrorState())
               else if (_entries.isEmpty)
@@ -1200,8 +1204,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               slivers: [
                 _buildSliverAppBar(),
                 if (_isLoading)
-                  const SliverFillRemaining(
-                      child: Center(child: CircularProgressIndicator()))
+                  SliverFillRemaining(child: _buildLoadingState())
                 else if (_errorMessage != null)
                   SliverFillRemaining(child: _buildErrorState())
                 else if (_entries.isEmpty)
@@ -1445,6 +1448,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               height: 1.5,
               color: Colors.grey.shade500,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    if (!_isFirstBootstrap) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 18),
+          Text(
+            '首次打开：正在把云端日记缓存到本地',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '完成之后每次打开都会直接显示，不再等待网络',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
           ),
         ],
       ),

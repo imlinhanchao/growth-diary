@@ -107,6 +107,17 @@ class DiaryRepository {
         }
       }
 
+      // 远端整体为空但本地有数据：可能是配置指错目录、服务端故障或权限变化。
+      // 后台同步不能把本地缓存清空（用户会以为日记全丢了），
+      // 只有用户显式下拉刷新（force）才接受"真的被清空"这个结果。
+      if (remote.isEmpty && index.entries.isNotEmpty && !force) {
+        return SyncReport(
+          error: StateError('远端目录为空（本地缓存 ${index.entries.length} 条），'
+              '已暂停同步以免误删本地数据；下拉刷新可强制对齐远端'),
+          elapsed: stopwatch.elapsed,
+        );
+      }
+
       final removedIds = index.entries.keys
           .where((id) => !remoteById.containsKey(id))
           .toList(growable: false);

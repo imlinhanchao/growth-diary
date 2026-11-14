@@ -123,6 +123,17 @@ Future<void> main() async {
     (await cache.readEntry('legacy-1'))?.title == '旧客户端写的',
   );
 
+  // 6b. 远端整体为空时的保护：后台同步不清空本地缓存
+  cloud.clearAll();
+  report = await repo.sync(force: false);
+  _check('远端为空时后台同步报错', report.error != null, '$report');
+  cached = await repo.loadCached();
+  _check('远端为空时本地缓存保留', cached.length == 8, '${cached.length}');
+  report = await repo.sync(force: true);
+  _check('显式刷新后接受清空', report.removed == 8, '$report');
+  cached = await repo.loadCached();
+  _check('显式刷新后本地清空', cached.isEmpty, '${cached.length}');
+
   // 7. 版本号与冲突裁决（纯逻辑）
   final now = DateTime(2026, 5, 1, 12);
   DiaryEntry e({int rev = 0, int updatedAt = 0, String title = '原题'}) =>
@@ -255,6 +266,11 @@ class _FakeCloud implements CloudStorageService {
   void remove(String id) {
     _entries.remove(id);
     _etag.remove(id);
+  }
+
+  void clearAll() {
+    _entries.clear();
+    _etag.clear();
   }
 
   String _tagFor(String id) {
