@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -117,8 +118,9 @@ class WebDAVService implements CloudStorageService {
     _config = config;
     _id = config.id;
 
-    // 初始化文件缓存
+    // 初始化文件缓存；容量清理放后台，不阻塞启动
     await _fileCache.initialize();
+    unawaited(_fileCache.enforceLimit());
 
     final client = await _ensureClient();
     if (client != null && _id != null) {

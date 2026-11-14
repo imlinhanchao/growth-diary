@@ -148,6 +148,7 @@ class LocalDiaryCache {
   final Directory baseDir;
 
   File get _indexFile => File('${baseDir.path}/index.json');
+  File get _syncStateFile => File('${baseDir.path}/sync_state.json');
   Directory get _entriesDir => Directory('${baseDir.path}/entries');
 
   Future<bool> exists() async => _indexFile.exists();
@@ -167,6 +168,31 @@ class LocalDiaryCache {
 
   Future<void> saveIndex(CacheIndex index) async {
     await _writeAtomic(_indexFile, jsonEncode(index.toJson()));
+    await saveSyncedAt(index.syncedAtMs);
+  }
+
+  /// 只记录"上次同步时间"。索引没变化时不再整体重写几 MB 的 index.json，
+  /// 2000 条约 426KB，每次启动都写一遍纯属浪费。
+  Future<void> saveSyncedAt(int syncedAtMs) async {
+    await _writeAtomic(
+      _syncStateFile,
+      jsonEncode({
+        'syncedAt': syncedAtMs,
+        'configId': baseDir.path.split(Platform.pathSeparator).last,
+      }),
+    );
+  }
+
+  /// 读取上次同步时间；缺失时返回 null，由调用方回退到索引里的值。
+  Future<int?> loadSyncedAt() async {
+    try {
+      if (!await _syncStateFile.exists()) return null;
+      final json = jsonDecode(await _syncStateFile.readAsString());
+      final value = (json as Map<String, dynamic>)['syncedAt'];
+      return value is int ? value : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<DiaryEntry?> readEntry(String id) async {

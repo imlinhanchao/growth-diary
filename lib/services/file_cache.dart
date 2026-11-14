@@ -3,16 +3,23 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import '../utils/cache_eviction.dart';
 
 class FileCache {
+  /// 媒体缓存默认上限。长期使用只写不删会把用户存储吃满。
+  static const int defaultMaxBytes = 500 * 1024 * 1024;
+
+  static DateTime? _lastLimitCheck;
+
   Directory? _cacheDir;
   bool _initialized = false;
 
-  Future<void> initialize() async {
+  /// [directory] 仅用于测试注入；不传时用 <documents>/media_cache。
+  Future<void> initialize({Directory? directory}) async {
     if (_initialized) return;
 
     final appDir = await getApplicationDocumentsDirectory();
-    _cacheDir = Directory('${appDir.path}/media_cache');
+    _cacheDir = directory ?? Directory('${appDir.path}/media_cache');
     debugPrint('Cache directory: ${_cacheDir!.path}');
 
     if (!await _cacheDir!.exists()) {
@@ -67,6 +74,29 @@ class FileCache {
     } catch (e) {
       debugPrint('Error writing cache file for key: $key, error: $e');
       // 忽略写入错误
+    }
+  }
+
+  /// 按最后修改时间淘汰旧文件，把缓存压到 [maxBytes] 以内。
+  /// 同一进程内默认 5 分钟内不重复扫描，避免每次启动都遍历上千个文件。
+  Future<void> enforceLimit({
+    int maxBytes = defaultMaxBytes,
+    bool force = false,
+  }) async {
+    if (!_initialized || _cacheDir == null) return;
+    final now = DateTime.now();
+    final last = _lastLimitCheck;
+    if (!force && last != null && now.difference(last).inMinutes < 5) return;
+    _lastLimitCheck = now;
+
+    try {
+      await evictOldestFiles(
+        _cacheDir!,
+        maxBytes: maxBytes,
+        log: (message) => debugPrint('媒体$message'),
+      );
+    } catch (e) {
+      debugPrint('媒体缓存清理失败: $e');
     }
   }
 

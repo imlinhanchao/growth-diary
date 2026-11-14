@@ -78,8 +78,8 @@ class DiaryRepository {
     try {
       final index = await cache.loadIndex() ??
           CacheIndex(configId: configId, syncedAtMs: 0);
-      final ageMs =
-          DateTime.now().millisecondsSinceEpoch - index.syncedAtMs;
+      final lastSyncedAt = await cache.loadSyncedAt() ?? index.syncedAtMs;
+      final ageMs = DateTime.now().millisecondsSinceEpoch - lastSyncedAt;
       if (!force &&
           _syncedThisSession &&
           index.entries.isNotEmpty &&
@@ -140,11 +140,19 @@ class DiaryRepository {
 
       _syncedThisSession = true;
       final now = DateTime.now().millisecondsSinceEpoch;
-      await cache.saveIndex(CacheIndex(
-        configId: configId,
-        syncedAtMs: now,
-        entries: newEntries,
-      ));
+      final hasListChanges = needFetch.isNotEmpty || removedIds.isNotEmpty ||
+          index.entries.length != newEntries.length;
+      if (hasListChanges) {
+        await cache.saveIndex(CacheIndex(
+          configId: configId,
+          syncedAtMs: now,
+          entries: newEntries,
+        ));
+      } else {
+        // 列表没变：只更新时间戳，不重写整份索引
+        index.syncedAtMs = now;
+        await cache.saveSyncedAt(now);
+      }
 
       var added = 0;
       var changed = 0;

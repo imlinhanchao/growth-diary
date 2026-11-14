@@ -17,8 +17,17 @@ import 'package:growth_diary/models/diary_entry.dart';
 import 'package:growth_diary/services/cloud_storage_service.dart';
 import 'package:growth_diary/services/diary_repository.dart';
 import 'package:growth_diary/services/local_diary_cache.dart';
+import 'package:growth_diary/utils/cache_eviction.dart';
 
 int _failures = 0;
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
 
 void _check(String name, bool ok, [String? detail]) {
   if (ok) {
@@ -61,12 +70,29 @@ Future<void> main() async {
       report.added == 0 && report.changed == 0, '$report');
   _check('二次同步读取 0 条', cloud.readCalls == 0, '${cloud.readCalls}');
 
+  // 2b. 无变化时不应重写整份索引，只更新时间戳
+  final indexFile = File('${root.path}/cache/index.json');
+  final syncStateFile = File('${root.path}/cache/sync_state.json');
+  final indexBefore = await indexFile.readAsBytes();
+  await Future<void>.delayed(const Duration(milliseconds: 20));
+  await repo.sync(force: true);
+  final indexAfter = await indexFile.readAsBytes();
+  _check('无变化时索引未被重写',
+      _sameBytes(indexBefore, indexAfter), '${indexBefore.length} vs ${indexAfter.length}');
+  _check('sync_state 已写入', await syncStateFile.exists());
+  final stateJson =
+      jsonDecode(await syncStateFile.readAsString()) as Map<String, dynamic>;
+  _check('sync_state 带同步时间', stateJson['syncedAt'] is int);
+
   // 3. 只改一条
   cloud.mutate('e3', '改过的标题');
   cloud.readCalls = 0;
   report = await repo.sync(force: true);
   _check('增量同步 changed=1', report.changed == 1, '$report');
   _check('增量同步只读 1 条', cloud.readCalls == 1, '${cloud.readCalls}');
+  final indexAfterChange = await indexFile.readAsBytes();
+  _check('列表变化时索引被重写',
+      !_sameBytes(indexAfter, indexAfterChange));
   final updated = await cache.readEntry('e3');
   _check('本地内容已更新', updated?.title == '改过的标题', updated?.title);
 
@@ -79,7 +105,6 @@ Future<void> main() async {
   _check('剩余 7 条', cached.length == 7, '${cached.length}');
 
   // 5. 索引损坏后重建
-  final indexFile = File('${root.path}/cache/index.json');
   await indexFile.writeAsString('{ broken json');
   cached = await repo.loadCached();
   _check('索引损坏时读不到条目', cached.isEmpty, '${cached.length}');
@@ -96,6 +121,23 @@ Future<void> main() async {
     '旧版写入的条目可读',
     (await cache.readEntry('legacy-1'))?.title == '旧客户端写的',
   );
+
+  // 7. 媒体缓存按最旧优先淘汰
+  final mediaDir = Directory('${root.path}/media_cache');
+  await mediaDir.create(recursive: true);
+  final base = DateTime(2026, 1, 1);
+  for (var i = 0; i < 5; i++) {
+    final file = File('${mediaDir.path}/f$i.bin');
+    await file.writeAsBytes(List<int>.filled(100, i));
+    await file.setLastModified(base.add(Duration(hours: i)));
+  }
+  final deleted = await evictOldestFiles(mediaDir, maxBytes: 250);
+  final remain = mediaDir.listSync().whereType<File>().toList();
+  _check('缓存淘汰删除了文件', deleted == 3, '$deleted');
+  _check('缓存淘汰后不超上限', remain.length == 2, '${remain.length}');
+  _check('保留的是较新的文件',
+      remain.every((f) => f.path.endsWith('f3.bin') || f.path.endsWith('f4.bin')),
+      remain.map((f) => f.path.split('/').last).join(','));
 
   await root.delete(recursive: true);
   stdout.writeln(_failures == 0
