@@ -80,6 +80,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   DiaryRepository? _repository;
   bool _offlineHintShown = false;
   bool _isFirstBootstrap = false;
+  int _bootstrapDone = 0;
+  int _bootstrapTotal = 0;
   bool _isLoading = true;
   final bool _isLoadingMore = false;
   String? _errorMessage;
@@ -359,10 +361,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           '${restWatch.elapsedMilliseconds}ms');
     }
 
-    // 3. 后台对账：1 次 PROPFIND + 变更条目
-    final report = await repo.sync(force: forceSync);
+    // 3. 后台对账：1 次 PROPFIND + 变更条目（分批拉取，首批先渲染）
+    _bootstrapDone = 0;
+    _bootstrapTotal = 0;
+    final syncWatch = Stopwatch()..start();
+    final report = await repo.sync(
+      force: forceSync,
+      onBatch: (fetched, done, total) {
+        if (!mounted) return;
+        _applyFetchedBatch(fetched);
+        debugPrint('[perf] 分批到账 +${fetched.length} '
+            '($done/$total, ${syncWatch.elapsedMilliseconds}ms)');
+        if (total > fetched.length) {
+          setState(() {
+            _bootstrapDone = done;
+            _bootstrapTotal = total;
+          });
+        }
+      },
+    );
     if (!mounted) return;
     debugPrint('[perf] sync done: $report');
+
+    // 分批结束后隐藏进度条
+    if (_bootstrapTotal > 0) {
+      setState(() {
+        _bootstrapDone = 0;
+        _bootstrapTotal = 0;
+      });
+    }
 
     if (report.error != null) {
       setState(() {
@@ -377,7 +404,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _offlineHintShown = false;
     _isFirstBootstrap = false;
-    if (report.hasChanges || _entries.isEmpty) {
+    if (report.removed > 0 || _entries.isEmpty) {
+      // 有删除时以磁盘为准重读一次，保证被删条目从列表消失
       final all = await repo.loadCached();
       if (!mounted) return;
       setState(() {
@@ -1454,6 +1482,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// 把一批新到的条目并入列表并刷新 UI，用于分批建缓存的渐进渲染。
+  void _applyFetchedBatch(List<DiaryEntry> fetched) {
+    if (fetched.isEmpty) return;
+    final byId = {for (final entry in _entries) entry.id: entry};
+    for (final entry in fetched) {
+      byId[entry.id] = entry;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    setState(() {
+      _entries = merged;
+      _entriesRevision++;
+      _isLoading = false;
+      _isFirstBootstrap = false;
+    });
+    _loadCoverImage();
+  }
+
   Widget _buildLoadingState() {
     if (!_isFirstBootstrap) {
       return const Center(child: CircularProgressIndicator());
@@ -1500,7 +1546,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         cachedItems != null &&
         cachedIndex != null) {
       _scheduleScrollToTargetMonth(cachedIndex);
-      return _buildTimelineSliverFrom(cachedItems, isWide);
+      return _withBootstrapBanner(_buildTimelineSliverFrom(cachedItems, isWide));
     }
 
     final buildWatch = Stopwatch()..start();
@@ -1717,7 +1763,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     _scheduleScrollToTargetMonth(itemIndexMap);
-    return _buildTimelineSliverFrom(items, isWide);
+    return _withBootstrapBanner(_buildTimelineSliverFrom(items, isWide));
+  }
+
+  /// 分批建缓存时，在列表顶部显示"正在补齐历史日记 done/total"。
+  Widget _withBootstrapBanner(Widget sliver) {
+    if (_bootstrapTotal <= 0 || _bootstrapDone >= _bootstrapTotal) {
+      return sliver;
+    }
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.pink.shade50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '正在补齐历史日记 $_bootstrapDone / $_bootstrapTotal',
+                    style: TextStyle(fontSize: 12, color: Colors.pink.shade700),
+                  ),
+                ),
+                SizedBox(
+                  width: 96,
+                  child: LinearProgressIndicator(
+                    value: _bootstrapDone / _bootstrapTotal,
+                    minHeight: 3,
+                    backgroundColor: Colors.pink.shade100,
+                    color: Colors.pink.shade300,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        sliver,
+      ],
+    );
   }
 
   Widget _buildTimelineSliverFrom(List<Widget> items, bool isWide) {

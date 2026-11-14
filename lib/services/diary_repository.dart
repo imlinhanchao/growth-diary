@@ -71,7 +71,13 @@ class DiaryRepository {
     return entries;
   }
 
-  Future<SyncReport> sync({bool force = false}) async {
+  /// 分批同步。[onBatch] 每拉完一批回调一次，用于让 UI 先渲染最近的数据；
+  /// 首批按远端 mtime 倒序（最近写入的条目先到），最多等一个网络往返就能出首屏。
+  Future<SyncReport> sync({
+    bool force = false,
+    void Function(List<DiaryEntry> fetched, int done, int total)? onBatch,
+    int batchSize = 40,
+  }) async {
     if (_syncing) return const SyncReport(skipped: true);
     _syncing = true;
     final stopwatch = Stopwatch()..start();
@@ -122,27 +128,65 @@ class DiaryRepository {
           .where((id) => !remoteById.containsKey(id))
           .toList(growable: false);
 
-      final fetched = await cloud.readEntries(needFetch);
-      final fetchedById = {for (final entry in fetched) entry.id: entry};
-      for (final entry in fetched) {
-        await cache.writeEntry(entry);
+      // 最近写入的条目优先拉取，保证首批就是用户最可能先看到的
+      final ordered = List<String>.from(needFetch)
+        ..sort((a, b) {
+          final am = remoteById[a]?.mtimeMs ?? 0;
+          final bm = remoteById[b]?.mtimeMs ?? 0;
+          return bm.compareTo(am);
+        });
+
+      final fetchedById = <String, DiaryEntry>{};
+      final newEntries = <String, CachedEntryMeta>{};
+      // 未变化的行先沿用，等批次里有新数据再覆盖
+      final pendingIds = needFetch.toSet();
+      for (final meta in remote) {
+        if (pendingIds.contains(meta.id)) continue;
+        final local = index.entries[meta.id];
+        if (local != null) newEntries[meta.id] = local;
       }
 
-      // 索引以远端列表为准：拉到 body 的用新元数据，没变化沿用旧行。
-      // 新增但拉取失败的不写进索引，下次同步会再试。
-      final newEntries = <String, CachedEntryMeta>{};
-      for (final meta in remote) {
-        final fetchedEntry = fetchedById[meta.id];
-        if (fetchedEntry != null) {
-          newEntries[meta.id] = CachedEntryMeta.fromEntry(
-            fetchedEntry,
-            etag: meta.etag,
-            mtimeMs: meta.mtimeMs,
-            size: meta.size,
-          );
-        } else if (index.entries[meta.id] != null) {
-          newEntries[meta.id] = index.entries[meta.id]!;
+      var done = 0;
+      final total = ordered.length;
+      final effectiveBatch =
+          batchSize < 1 ? total.clamp(1, 1000) : batchSize;
+      for (var i = 0; i < ordered.length; i += effectiveBatch) {
+        final end =
+            (i + effectiveBatch) < ordered.length ? i + effectiveBatch : ordered.length;
+        final chunk = ordered.sublist(i, end);
+        final chunkEntries = await cloud.readEntries(chunk);
+        for (final entry in chunkEntries) {
+          await cache.writeEntry(entry);
+          fetchedById[entry.id] = entry;
+          final meta = remoteById[entry.id];
+          if (meta != null) {
+            newEntries[entry.id] = CachedEntryMeta.fromEntry(
+              entry,
+              etag: meta.etag,
+              mtimeMs: meta.mtimeMs,
+              size: meta.size,
+            );
+          }
         }
+        done += chunk.length;
+
+        // 每批落一次索引：中途被杀掉也能保住已下载的部分
+        final hasMore = end < ordered.length;
+        if (hasMore) {
+          await cache.saveIndex(CacheIndex(
+            configId: configId,
+            syncedAtMs: DateTime.now().millisecondsSinceEpoch,
+            entries: newEntries,
+          ));
+        }
+        onBatch?.call(chunkEntries, done, total);
+      }
+
+      // 拉取失败的新增条目：不写入索引，下次再试；老条目沿用旧行
+      for (final meta in remote) {
+        if (newEntries.containsKey(meta.id)) continue;
+        final local = index.entries[meta.id];
+        if (local != null) newEntries[meta.id] = local;
       }
 
       for (final id in removedIds) {

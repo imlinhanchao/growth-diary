@@ -123,14 +123,36 @@ Future<void> main() async {
     (await cache.readEntry('legacy-1'))?.title == '旧客户端写的',
   );
 
+  // 6a. 分批同步：120 条按 40 一批，onBatch 三次且总数正确
+  cloud.clearAll();
+  for (var i = 0; i < 120; i++) {
+    cloud.seed('batch$i', DateTime(2026, 1, 1).add(Duration(days: i)), '批次 $i');
+  }
+  final batches = <int>[];
+  var batchTotal = 0;
+  report = await repo.sync(
+    force: true,
+    batchSize: 40,
+    onBatch: (fetched, done, total) {
+      batches.add(fetched.length);
+      batchTotal = total;
+    },
+  );
+  _check('分批同步回调 3 次', batches.length == 3, '$batches');
+  _check('每批 40 条', batches.every((n) => n == 40), '$batches');
+  _check('分批总数正确', batchTotal == 120, '$batchTotal');
+  _check('分批后 added=120', report.added == 120, '$report');
+  cached = await repo.loadCached();
+  _check('分批后缓存 120 条', cached.length == 120, '${cached.length}');
+
   // 6b. 远端整体为空时的保护：后台同步不清空本地缓存
   cloud.clearAll();
   report = await repo.sync(force: false);
   _check('远端为空时后台同步报错', report.error != null, '$report');
   cached = await repo.loadCached();
-  _check('远端为空时本地缓存保留', cached.length == 8, '${cached.length}');
+  _check('远端为空时本地缓存保留', cached.length == 120, '${cached.length}');
   report = await repo.sync(force: true);
-  _check('显式刷新后接受清空', report.removed == 8, '$report');
+  _check('显式刷新后接受清空', report.removed == 120, '$report');
   cached = await repo.loadCached();
   _check('显式刷新后本地清空', cached.isEmpty, '${cached.length}');
 
