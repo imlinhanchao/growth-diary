@@ -64,6 +64,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<DiaryEntry> _entries = [];
   int _entriesRevision = 0;
+  // 时间轴 widget 缓存：条目/配置/选中项没变时不再重建上千个 TimelineItem
+  List<Widget>? _timelineCacheItems;
+  Map<DateTime, int>? _timelineCacheIndex;
+  int _timelineCacheKey = 0;
+  bool _timelineCacheValid = false;
   List<TvMediaItem>? _tvMediaCache;
   int _tvMediaCacheRevision = -1;
   int _tvMediaCacheFilter = -1;
@@ -1431,6 +1436,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return SliverFillRemaining(child: _buildEmptyState());
     }
 
+    final isWide = DeviceType.isWideScreen(context);
+    final cacheKey = Object.hash(
+      _entriesRevision,
+      _selectedEntry?.id,
+      isWide,
+      currentConfig.id,
+      currentConfig.babyName,
+      currentConfig.babyBirthDate?.millisecondsSinceEpoch,
+      currentConfig.babyConceptionDate?.millisecondsSinceEpoch,
+    );
+    final cachedItems = _timelineCacheItems;
+    final cachedIndex = _timelineCacheIndex;
+    if (_timelineCacheValid &&
+        _timelineCacheKey == cacheKey &&
+        cachedItems != null &&
+        cachedIndex != null) {
+      _scheduleScrollToTargetMonth(cachedIndex);
+      return _buildTimelineSliverFrom(cachedItems, isWide);
+    }
+
+    final buildWatch = Stopwatch()..start();
     // Sort entries by date descending
     final sortedEntries = List<DiaryEntry>.from(_entries)
       ..sort((a, b) => b.date.compareTo(a.date));
@@ -1633,22 +1659,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ));
     }
 
-    // 如果有目标月份，滚动到对应位置
-    if (_targetMonth != null) {
-      final index = itemIndexMap[_targetMonth];
-      if (index != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollController.animateTo(
-            index * 250.0 + 150.0,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        });
-      }
-      _targetMonth = null; // 重置
+    buildWatch.stop();
+    _timelineCacheItems = items;
+    _timelineCacheIndex = itemIndexMap;
+    _timelineCacheKey = cacheKey;
+    _timelineCacheValid = true;
+    if (buildWatch.elapsedMilliseconds >= 4) {
+      debugPrint('[perf] timeline rebuilt in '
+          '${buildWatch.elapsedMilliseconds}ms (${items.length} 项)');
     }
 
-    final isWide = DeviceType.isWideScreen(context);
+    _scheduleScrollToTargetMonth(itemIndexMap);
+    return _buildTimelineSliverFrom(items, isWide);
+  }
+
+  Widget _buildTimelineSliverFrom(List<Widget> items, bool isWide) {
     return SliverPadding(
       padding: EdgeInsets.symmetric(
         horizontal: isWide ? 12 : 8,
@@ -1661,6 +1686,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  void _scheduleScrollToTargetMonth(Map<DateTime, int> itemIndexMap) {
+    final target = _targetMonth;
+    if (target == null) return;
+    final index = itemIndexMap[target];
+    if (index != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        _scrollController.animateTo(
+          index * 250.0 + 150.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+    _targetMonth = null;
   }
 
   Widget _buildTimelineDrawer() {
