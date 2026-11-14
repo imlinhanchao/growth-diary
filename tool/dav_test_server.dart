@@ -67,6 +67,15 @@ Map<String, String> _parseArgs(List<String> args) {
 
 class Stats {
   int total = 0;
+  int _inflight = 0;
+  int peakInflight = 0;
+
+  void enter() {
+    _inflight++;
+    if (_inflight > peakInflight) peakInflight = _inflight;
+  }
+
+  void leave() => _inflight--;
   final Map<String, int> byMethod = {};
   final Map<String, int> byPath = {};
   final List<Map<String, dynamic>> entries = [];
@@ -88,6 +97,7 @@ class Stats {
 
   void reset() {
     total = 0;
+    peakInflight = 0;
     byMethod.clear();
     byPath.clear();
     entries.clear();
@@ -100,6 +110,7 @@ class Stats {
     return {
       'total': total,
       'byMethod': byMethod,
+      'peakInflight': peakInflight,
       if (detail) 'paths': byPath else 'topPaths': {
         for (final e in sorted.take(8)) e.key: e.value
       },
@@ -134,7 +145,15 @@ Future<void> _handle(HttpRequest req) async {
   }
 
   stats.hit(method, path);
+  stats.enter();
+  try {
+    await _handleInner(req, method, path);
+  } finally {
+    stats.leave();
+  }
+}
 
+Future<void> _handleInner(HttpRequest req, String method, String path) async {
   if (latencyMs > 0) {
     await Future<void>.delayed(Duration(milliseconds: latencyMs));
   }

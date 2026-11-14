@@ -309,6 +309,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           '(索引 ${indexWatch.elapsedMilliseconds}ms, '
           '首屏 ${firstPage.length} 条 ${pageWatch.elapsedMilliseconds}ms)');
       _loadCoverImage();
+      // 首屏缩略图提前排队下载（队列限流 4 路，不阻塞渲染）
+      unawaited(_prefetchThumbnails(firstPage));
     } else {
       setState(() => _isLoading = true);
     }
@@ -358,6 +360,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() => _isLoading = false);
     }
     debugPrint('[perf] entries ready: ${_entries.length} 条');
+  }
+
+  /// 提前把首屏可见条目的缩略图排进下载队列。
+  /// 下载本身受 WebDAVService 的 4 路并发限制，这里只负责发起，不 await。
+  Future<void> _prefetchThumbnails(Iterable<DiaryEntry> entries) async {
+    const maxEntries = 6;
+    const maxFiles = 24;
+    final paths = <String>[];
+    for (final entry in entries.take(maxEntries)) {
+      paths.addAll(entry.imageThumbnails);
+      paths.addAll(entry.videoThumbnails);
+      if (paths.length >= maxFiles) break;
+    }
+    final unique = paths.toSet().take(maxFiles).toList();
+    if (unique.isEmpty) return;
+    for (final path in unique) {
+      unawaited(widget.cloudService.downloadFile(path));
+    }
+    debugPrint('[perf] 预取缩略图 ${unique.length} 张');
   }
 
   void _showOfflineHint() {

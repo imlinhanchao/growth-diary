@@ -22,6 +22,13 @@ class WebDAVService implements CloudStorageService {
   final FileCache _fileCache = FileCache();
   final LocalStorageService _localStorage = LocalStorageService();
 
+  /// 媒体下载并发上限。时间轴上每条日记最多 9 张缩略图，
+  /// 不限流的话首屏会同时打出上百个请求，弱网下互相拖慢。
+  static const int _maxConcurrentDownloads = 4;
+  int _activeDownloads = 0;
+  final List<Completer<void>> _downloadWaiters = [];
+  final Map<String, Future<Uint8List?>> _downloadInFlight = {};
+
   String _getBasePath() => 'growth_diary/$_id';
 
   String _getConfigPath() => '${_getBasePath()}/config.json';
@@ -356,7 +363,45 @@ class WebDAVService implements CloudStorageService {
   }
 
   @override
-  Future<Uint8List?> downloadFile(String path) async {
+  Future<Uint8List?> downloadFile(String path) {
+    // 同一路径正在下载时复用同一个 Future，避免缩略图被预取和列表同时请求
+    final inFlight = _downloadInFlight[path];
+    if (inFlight != null) return inFlight;
+
+    final future = _downloadWithSlot(path);
+    _downloadInFlight[path] = future;
+    return future.whenComplete(() => _downloadInFlight.remove(path));
+  }
+
+  Future<void> _acquireDownloadSlot() {
+    if (_activeDownloads < _maxConcurrentDownloads) {
+      _activeDownloads++;
+      return Future<void>.value();
+    }
+    final waiter = Completer<void>();
+    _downloadWaiters.add(waiter);
+    return waiter.future;
+  }
+
+  void _releaseDownloadSlot() {
+    if (_downloadWaiters.isNotEmpty) {
+      // 名额直接转交给下一个等待者，_activeDownloads 不变
+      _downloadWaiters.removeAt(0).complete();
+    } else {
+      _activeDownloads--;
+    }
+  }
+
+  Future<Uint8List?> _downloadWithSlot(String path) async {
+    await _acquireDownloadSlot();
+    try {
+      return await _downloadFileNow(path);
+    } finally {
+      _releaseDownloadSlot();
+    }
+  }
+
+  Future<Uint8List?> _downloadFileNow(String path) async {
     // 检查缓存
     final cachedData = await _fileCache.get(path);
     if (cachedData != null) {
