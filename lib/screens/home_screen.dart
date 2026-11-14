@@ -72,6 +72,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<TvMediaItem>? _tvMediaCache;
   int _tvMediaCacheRevision = -1;
   int _tvMediaCacheFilter = -1;
+  // TV 网格懒构建：只存每个条目的媒体数前缀和，按需构造 TvMediaItem
+  List<int>? _tvPrefixCounts;
+  int _tvTotalMediaCount = 0;
+  int _tvPrefixRevision = -1;
+  int _tvPrefixFilter = -1;
   DiaryRepository? _repository;
   bool _offlineHintShown = false;
   bool _isLoading = true;
@@ -2486,6 +2491,102 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return items;
   }
 
+  int _tvMediaCountForEntry(DiaryEntry entry) {
+    if (_tvFilterIndex == 1) return entry.imagePaths.length;
+    if (_tvFilterIndex == 2) return entry.videoPaths.length;
+    return entry.imagePaths.length + entry.videoPaths.length;
+  }
+
+  void _ensureTvPrefix() {
+    if (_tvPrefixCounts != null &&
+        _tvPrefixRevision == _entriesRevision &&
+        _tvPrefixFilter == _tvFilterIndex) {
+      return;
+    }
+    final counts = <int>[];
+    var total = 0;
+    for (final entry in _entries) {
+      total += _tvMediaCountForEntry(entry);
+      counts.add(total);
+    }
+    _tvPrefixCounts = counts;
+    _tvTotalMediaCount = total;
+    _tvPrefixRevision = _entriesRevision;
+    _tvPrefixFilter = _tvFilterIndex;
+  }
+
+  /// 把扁平下标映射回 (条目, 条目内序号)，用前缀和 + 二分，避免构造整张列表。
+  TvMediaItem? _tvItemAt(int flatIndex) {
+    final prefix = _tvPrefixCounts;
+    if (prefix == null || flatIndex < 0 || flatIndex >= _tvTotalMediaCount) {
+      return null;
+    }
+    var lo = 0;
+    var hi = prefix.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (prefix[mid] > flatIndex) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    final entry = _entries[lo];
+    final before = lo == 0 ? 0 : prefix[lo - 1];
+    final inEntry = flatIndex - before;
+    return _tvItemInEntry(entry, inEntry);
+  }
+
+  TvMediaItem? _tvItemInEntry(DiaryEntry entry, int inEntry) {
+    final imageCount = entry.imagePaths.length;
+    if (_tvFilterIndex == 1) {
+      if (inEntry >= imageCount) return null;
+      return TvMediaItem(
+        type: TvMediaType.photo,
+        mediaPath: entry.imagePaths[inEntry],
+        thumbnailPath: inEntry < entry.imageThumbnails.length
+            ? entry.imageThumbnails[inEntry]
+            : entry.imagePaths[inEntry],
+        entry: entry,
+        indexInEntry: inEntry,
+      );
+    }
+    if (_tvFilterIndex == 2) {
+      if (inEntry >= entry.videoPaths.length) return null;
+      return TvMediaItem(
+        type: TvMediaType.video,
+        mediaPath: entry.videoPaths[inEntry],
+        thumbnailPath: inEntry < entry.videoThumbnails.length
+            ? entry.videoThumbnails[inEntry]
+            : '',
+        entry: entry,
+        indexInEntry: inEntry,
+      );
+    }
+    if (inEntry < imageCount) {
+      return TvMediaItem(
+        type: TvMediaType.photo,
+        mediaPath: entry.imagePaths[inEntry],
+        thumbnailPath: inEntry < entry.imageThumbnails.length
+            ? entry.imageThumbnails[inEntry]
+            : entry.imagePaths[inEntry],
+        entry: entry,
+        indexInEntry: inEntry,
+      );
+    }
+    final videoIndex = inEntry - imageCount;
+    if (videoIndex >= entry.videoPaths.length) return null;
+    return TvMediaItem(
+      type: TvMediaType.video,
+      mediaPath: entry.videoPaths[videoIndex],
+      thumbnailPath: videoIndex < entry.videoThumbnails.length
+          ? entry.videoThumbnails[videoIndex]
+          : '',
+      entry: entry,
+      indexInEntry: videoIndex,
+    );
+  }
+
   Future<Uint8List?> _getTvThumbnailData(String path) async {
     if (path.isEmpty) return null;
     if (_thumbnailCache.containsKey(path)) {
@@ -2686,7 +2787,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildTvLayout(BuildContext context) {
-    final mediaItems = _getTvMediaItems();
+    _ensureTvPrefix();
     final totalPhotos =
         _entries.fold<int>(0, (sum, e) => sum + e.imagePaths.length);
     final totalVideos =
@@ -2708,9 +2809,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ? _buildTvLoadingState()
                   : _errorMessage != null
                       ? _buildTvErrorState()
-                      : mediaItems.isEmpty
+                      : _tvTotalMediaCount == 0
                           ? _buildTvEmptyState()
-                          : _buildTvMediaGrid(mediaItems),
+                          : _buildTvMediaGrid(),
             ),
           ],
         ),
@@ -2809,7 +2910,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTvMediaGrid(List<TvMediaItem> items) {
+  Widget _buildTvMediaGrid() {
     return GridView.builder(
       controller: _tvScrollController,
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
@@ -2819,9 +2920,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         mainAxisSpacing: 18,
         childAspectRatio: 1.25,
       ),
-      itemCount: items.length,
+      itemCount: _tvTotalMediaCount,
       itemBuilder: (context, index) {
-        final item = items[index];
+        final item = _tvItemAt(index);
+        if (item == null) return const SizedBox.shrink();
         return _TvMediaCard(
           key: ValueKey('${item.type}_${item.mediaPath}_$index'),
           item: item,
