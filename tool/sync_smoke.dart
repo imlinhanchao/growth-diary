@@ -301,6 +301,9 @@ class _FakeCloud implements CloudStorageService {
       (await readEntries(_entries.keys.toList()));
 
   @override
+  set conflictListener(void Function(DiaryEntry conflict)? listener) {}
+
+  @override
   Future<DiaryEntry> saveDiaryEntry(DiaryEntry entry) async {
     _entries[entry.id] = entry;
     _etag[entry.id] = _tagFor(entry.id);

@@ -166,6 +166,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint('Error initializing WebDAV service: $e');
     });
 
+    // 冲突副本：保存时被判定为并发的编辑，提示用户并刷新列表
+    widget.cloudService.conflictListener = (conflict) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('检测到另一端的修改，已保留为「冲突副本」：${conflict.title}'),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '查看',
+          onPressed: () => _loadEntries(forceSync: true),
+        ),
+      ));
+      unawaited(_loadEntries(forceSync: true));
+    };
+
     // 初始化 EntryCreationService
     _entryCreationService = EntryCreationService(widget.cloudService);
 
@@ -225,6 +239,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    widget.cloudService.conflictListener = null;
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     _deviceChannel.setMethodCallHandler(null);
     _scrollController.dispose();

@@ -300,7 +300,7 @@ PROPFIND 的 gzip 还没开：该库把 `accept-encoding` 写死为空，改库�
   4. `rev` 不同 → `rev` 大的一方留在原 id，另一方另存为「冲突副本」；
   5. `rev` 相同 → `updatedAt` 较新的一方留在原 id；两边时间差超过 5 分钟视为时钟不可信，**两份都保留**。
 - 冲突副本用新 uuid、标题加「（冲突副本）」后缀，因此条目总数会变多，靠现有同步自然会出现在时间轴上。
-- 已知不足：副本只在下次同步时出现在列表里，保存当下没有弹窗提醒；如果希望保存时立刻提示，需要把 `saveDiaryEntry` 的返回值扩展成带冲突信息的结果对象。
+- 保存当下会即时提示：`CloudStorageService.conflictListener` 回调把副本推给首页，弹出「已保留为冲突副本」提示并自动刷新列表，不需要等下次冷启动。
 - **兼容雷点**：上传任务队列会把 `DiaryEntry` 整个序列化进 `upload_tasks.json`（[media_upload_service.dart:325-327](lib/services/media_upload_service.dart#L325-L327)、[394-397](lib/services/media_upload_service.dart#L394-L397)）。加字段后，老版本写下的队列文件在新版反序列化时必须走默认值，不能抛异常；反过来新版写下的队列文件被旧版读取时也一样。这一点必须在 Phase 2 动工前测过。
 - 写入点共三个：编辑页（[diary_editor_screen.dart:83](lib/screens/diary_editor_screen.dart#L83)、[91](lib/screens/diary_editor_screen.dart#L91)）、详情页（[entry_detail_screen.dart:209](lib/screens/entry_detail_screen.dart#L209)）、上传完成回调（[media_upload_service.dart:985](lib/services/media_upload_service.dart#L985)）。
 
@@ -489,7 +489,6 @@ dart tool/sync_smoke.dart
 1. **缩略图仍逐张 GET**：首次浏览一屏仍会发几十次请求。这些走 `FileCache` 磁盘缓存，第二次打开不再请求，但首次浏览的体感仍受网络影响。彻底解决需要把缩略图放进条目同步范围或引入批量下载。
 2. **TV 模式**：`_getTvMediaItems()` 已按「条目修订号 + 过滤条件」记忆化，不再是每次 build 全量展开；但列表变化时仍是一次 O(N) 重建，真正的按可见行懒展开还没做。
 3. **缓存没有容量上限**：媒体缓存只写不淘汰（§3.8）。
-4. **冲突副本没有即时提示**：保存时会写副本，但要等下次同步才出现在列表里（§4.2）。
 5. **时间轴列表仍为每次 build 重建全部 widget 对象**（构造 2000 个 `TimelineItem` 实例），可改缓存或惰性构建。
 6. **启动时 8 次 MKCOL**：占稳态请求的大头，可以在 prefs 里记"目录已就绪"来跳过，但要考虑服务端目录被删的情况，暂时保留。
 7. **媒体缓存的 500MB 上限是写死的**，没有暴露给设置页。

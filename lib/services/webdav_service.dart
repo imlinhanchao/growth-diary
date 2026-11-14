@@ -30,6 +30,13 @@ class WebDAVService implements CloudStorageService {
   final List<Completer<void>> _downloadWaiters = [];
   final Map<String, Future<Uint8List?>> _downloadInFlight = {};
 
+  void Function(DiaryEntry conflict)? _conflictListener;
+
+  @override
+  set conflictListener(void Function(DiaryEntry conflict)? listener) {
+    _conflictListener = listener;
+  }
+
   String _getBasePath() => 'growth_diary/$_id';
 
   String _getConfigPath() => '${_getBasePath()}/config.json';
@@ -233,6 +240,7 @@ class WebDAVService implements CloudStorageService {
       if (decision.hasConflict) {
         debugPrint('检测到并发编辑（${decision.reason}），'
             '另存副本 ${decision.conflictCopy!.id}');
+        _conflictListener?.call(decision.conflictCopy!);
       }
       if (decision.conflictCopy != null) {
         await _writeEntryFile(decision.conflictCopy!);
