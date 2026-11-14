@@ -130,7 +130,7 @@ void _seedOne(Directory root, String url, String id, int count,
 
     final body = '第 $i 条记录的正文。' * (i % 5 == 0 ? 12 : 2);
     final entry = {
-      'id': 'entry-${id}-$i',
+      'id': 'entry-$id-$i',
       'date': date.toIso8601String(),
       'title': '记录 $i：${_titlePool[i % _titlePool.length]}',
       'description': body,
@@ -140,7 +140,7 @@ void _seedOne(Directory root, String url, String id, int count,
       'videoThumbnails': videoThumbs,
       'ageInMonths': months,
     };
-    File('${entriesDir.path}/entry-${id}-$i.json')
+    File('${entriesDir.path}/entry-$id-$i.json')
         .writeAsStringSync(jsonEncode(entry), flush: true);
   }
 

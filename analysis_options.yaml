@@ -7,6 +7,10 @@ linter:
     avoid_print: false
     
 analyzer:
+  # 第三方 vendoring 的包不参与本项目的 lint（保持上游原样，便于升级时对比）
+  exclude:
+    - depends/**
+    - build/**
   errors:
     missing_required_param: error
     missing_return: error
