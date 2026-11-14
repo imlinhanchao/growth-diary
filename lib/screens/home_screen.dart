@@ -400,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _errorMessage = report.error.toString();
         }
       });
-      if (_entries.isNotEmpty) _showOfflineHint();
+      if (_entries.isNotEmpty) _showOfflineHint(report.error);
       return;
     }
 
@@ -447,12 +447,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     debugPrint('[perf] 预取缩略图 ${unique.length} 张');
   }
 
-  void _showOfflineHint() {
+  void _showOfflineHint([Object? error]) {
     if (_offlineHintShown) return;
     _offlineHintShown = true;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('离线模式：显示本地缓存，数据可能不是最新'),
-      duration: Duration(seconds: 4),
+    final reason = error == null ? '网络不可用' : error.toString();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$reason，正在显示本地缓存'),
+      duration: const Duration(seconds: 5),
+      action: SnackBarAction(
+        label: '重试',
+        onPressed: () => _loadEntries(forceSync: true),
+      ),
     ));
   }
 
