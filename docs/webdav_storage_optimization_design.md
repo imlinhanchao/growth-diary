@@ -267,9 +267,13 @@ sync():
 
 1. **并发**：首次安装与缩略图预取都用 4–6 路并发，让 OPTIONS 与 GET 在时间上重叠。墙钟收益明显，但请求总数不变，适合不想动依赖的情况。
 2. **绕开库的封装**：`webdav.Client` 的 `c` 字段是公开的 `WdDio`，可以直接 `client.c.req(client, 'GET', path, ...)` 跳过 `wdReadWithBytes` 里的 `wdOptions`。代价是依赖内部 API，需要包一层 `_readRaw()` 并保留 `client.read()` 作为兜底。
-3. **vendoring**：项目已有 `depends/` + `dependency_overrides` 的先例（`video_player_android`），把 `webdav_client` 复制进来去掉多余的 OPTIONS 也可行，长期最稳但维护成本最高。
+3. **vendoring（已采用）**：把 `webdav_client` 复制进 `depends/webdav_client-1.2.2`，删掉 `wdReadWithBytes` / `wdRead2File` / `wdWriteWithBytes` / `wdWriteWithStream` 四处 OPTIONS 预检，用 `dependency_overrides` 指过去。项目本来就有 `depends/video_player_android` 的先例。
 
-Phase 1 先用方案 1；如果实测显示 OPTIONS 占首屏耗时 30% 以上，再上方案 2。方案 3 只在确实需要给 PROPFIND 开 gzip 时考虑（该库把 `accept-encoding` 写死为空，只有改库才能压缩目录响应）。
+实际做法是方案 1 + 方案 3：先靠并发把首屏体验拉起来，再 vendoring 把请求数从根上减半。`depends/webdav_client-1.2.2` 中删掉的四处预检都有注释标记，升级该依赖时要重新打这个补丁。
+
+实测收益（500 条）：首次安装请求 1027 → 518，同步耗时 39.8s → 23.9s；稳态请求同步减少（config 读取与缩略图下载各自少一次往返）。
+
+PROPFIND 的 gzip 还没开：该库把 `accept-encoding` 写死为空，改库后 Dart 的解压链路需要单独验证，留到分片阈值触发时一起做。
 
 ---
 
@@ -443,6 +447,8 @@ Phase 1 先用方案 1；如果实测显示 OPTIONS 占首屏耗时 30% 以上�
 | `lib/utils/cache_eviction.dart` | 新增 | 按最后修改时间淘汰旧缓存文件（纯 Dart，可测） |
 | `lib/services/file_cache.dart` | 改动 | 500MB 上限 + 5 分钟节流 + 支持注入目录 |
 | `lib/services/local_storage_service.dart` | 改动 | 设备 ID（用于冲突裁决标识写入方） |
+| `depends/webdav_client-1.2.2/` | 新增 | vendoring 的 WebDAV 客户端，去掉 4 处 OPTIONS 预检 |
+| `pubspec.yaml` | 改动 | 增加 webdav_client 的 path override |
 | `lib/screens/home_screen.dart` | 改动 | 接入 `DiaryRepository`：索引→首屏 12 条→后台补全→对账；离线提示；滚动不再发网络请求；编辑/删除同步更新本地缓存 |
 | `tool/dav_test_server.dart` | 新增 | 本地 WebDAV 夹具：PROPFIND/GET/PUT/DELETE/MKCOL，可注入延迟与失败，`/__stats` 统计请求数 |
 | `tool/dav_seed.dart` | 新增 | 生成 500 / 2000 条含缩略图的测试数据 |
@@ -485,5 +491,5 @@ dart tool/sync_smoke.dart
 3. **缓存没有容量上限**：媒体缓存只写不淘汰（§3.8）。
 4. **冲突副本没有即时提示**：保存时会写副本，但要等下次同步才出现在列表里（§4.2）。
 5. **时间轴列表仍为每次 build 重建全部 widget 对象**（构造 2000 个 `TimelineItem` 实例），可改缓存或惰性构建。
-6. **`read()` 前的 OPTIONS 未消除**：目前靠并发掩盖，§3.11 的方案 2/3 未实施。
+6. **启动时 8 次 MKCOL**：占稳态请求的大头，可以在 prefs 里记"目录已就绪"来跳过，但要考虑服务端目录被删的情况，暂时保留。
 7. **媒体缓存的 500MB 上限是写死的**，没有暴露给设置页。

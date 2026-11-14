@@ -52,6 +52,10 @@ dev_dependencies:
 dependency_overrides:
   video_player_android:
     path: ./depends/video_player_android-2.8.17
+  # 本地 patch 版 webdav_client：去掉每条请求前的 OPTIONS 预检，
+  # 首次安装与增量拉取的请求数直接减半。
+  webdav_client:
+    path: ./depends/webdav_client-1.2.2
 
 flutter_launcher_icons:
   android: "launcher_icon"
