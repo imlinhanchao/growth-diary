@@ -13,6 +13,11 @@ class DiaryEntry {
   final List<String> videoThumbnails; // 小号缩略图，用于时间轴
   final int ageInMonths;
 
+  // 同步控制字段。旧版本写下的条目没有这些字段，读取时一律按 0 / 空处理。
+  final int updatedAt; // 毫秒时间戳，用于同版本号时的裁决与展示
+  final int rev; // 版本递增计数器，冲突裁决以它为主
+  final String deviceId; // 最后写入的设备
+
   DiaryEntry({
     String? id,
     required this.date,
@@ -23,7 +28,40 @@ class DiaryEntry {
     this.imageThumbnails = const [],
     this.videoThumbnails = const [],
     required this.ageInMonths,
+    this.updatedAt = 0,
+    this.rev = 0,
+    this.deviceId = '',
   }) : id = id ?? const Uuid().v4();
+
+  DiaryEntry copyWith({
+    String? id,
+    DateTime? date,
+    String? title,
+    String? description,
+    List<String>? imagePaths,
+    List<String>? videoPaths,
+    List<String>? imageThumbnails,
+    List<String>? videoThumbnails,
+    int? ageInMonths,
+    int? updatedAt,
+    int? rev,
+    String? deviceId,
+  }) {
+    return DiaryEntry(
+      id: id ?? this.id,
+      date: date ?? this.date,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      imagePaths: imagePaths ?? this.imagePaths,
+      videoPaths: videoPaths ?? this.videoPaths,
+      imageThumbnails: imageThumbnails ?? this.imageThumbnails,
+      videoThumbnails: videoThumbnails ?? this.videoThumbnails,
+      ageInMonths: ageInMonths ?? this.ageInMonths,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rev: rev ?? this.rev,
+      deviceId: deviceId ?? this.deviceId,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -36,6 +74,9 @@ class DiaryEntry {
       'imageThumbnails': imageThumbnails,
       'videoThumbnails': videoThumbnails,
       'ageInMonths': ageInMonths,
+      'updatedAt': updatedAt,
+      'rev': rev,
+      'deviceId': deviceId,
     };
   }
 
@@ -50,6 +91,9 @@ class DiaryEntry {
       imageThumbnails: List<String>.from(json['imageThumbnails'] ?? []),
       videoThumbnails: List<String>.from(json['videoThumbnails'] ?? []),
       ageInMonths: json['ageInMonths'],
+      updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
+      rev: (json['rev'] as num?)?.toInt() ?? 0,
+      deviceId: json['deviceId'] as String? ?? '',
     );
   }
 

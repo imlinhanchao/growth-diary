@@ -80,9 +80,10 @@ class _DiaryEditorScreenState extends State<DiaryEditorScreen> {
           videoThumbnails: widget.entryToEdit!.videoThumbnails,
           ageInMonths: widget.entryToEdit!.ageInMonths,
         );
-        await widget.webdavService.saveDiaryEntry(updatedEntry);
+        final saved =
+            await widget.webdavService.saveDiaryEntry(updatedEntry);
         if (!mounted) return;
-        Navigator.of(context).pop(updatedEntry); // 返回更新后的条目
+        Navigator.of(context).pop(saved); // 返回实际落盘的条目
       } else {
         // 创建模式：创建新条目
         var entry = await _entryService.createDiaryEntry(

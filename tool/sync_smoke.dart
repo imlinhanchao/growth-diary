@@ -18,6 +18,7 @@ import 'package:growth_diary/services/cloud_storage_service.dart';
 import 'package:growth_diary/services/diary_repository.dart';
 import 'package:growth_diary/services/local_diary_cache.dart';
 import 'package:growth_diary/utils/cache_eviction.dart';
+import 'package:growth_diary/utils/revision_merger.dart';
 
 int _failures = 0;
 
@@ -122,7 +123,85 @@ Future<void> main() async {
     (await cache.readEntry('legacy-1'))?.title == '旧客户端写的',
   );
 
-  // 7. 媒体缓存按最旧优先淘汰
+  // 7. 版本号与冲突裁决（纯逻辑）
+  final now = DateTime(2026, 5, 1, 12);
+  DiaryEntry e({int rev = 0, int updatedAt = 0, String title = '原题'}) =>
+      DiaryEntry(
+        id: 'rev-1',
+        date: DateTime(2026, 4, 1),
+        title: title,
+        description: '正文',
+        ageInMonths: 10,
+        rev: rev,
+        updatedAt: updatedAt,
+      );
+
+  var decision = decideEntrySave(
+      incoming: e(), remote: null, deviceId: 'dev-a', now: now);
+  _check('新建条目 rev=1', decision.entry?.rev == 1, '${decision.entry?.rev}');
+  _check('新建不产生副本', decision.conflictCopy == null);
+
+  decision = decideEntrySave(
+      incoming: e(rev: 3, updatedAt: 100),
+      remote: e(rev: 3, updatedAt: 100),
+      deviceId: 'dev-a',
+      now: now);
+  _check('内容未变只递增 rev', decision.entry?.rev == 4 && !decision.hasConflict,
+      '$decision');
+
+  decision = decideEntrySave(
+      incoming: e(rev: 5, updatedAt: 200, title: '本地改'),
+      remote: e(rev: 2, updatedAt: 100, title: '远端旧'),
+      deviceId: 'dev-a',
+      now: now);
+  _check('本地 rev 更高时本地做主版本',
+      decision.entry?.title == '本地改' && decision.conflictCopy != null,
+      '$decision');
+  _check('远端旧内容被保留成副本',
+      decision.conflictCopy?.title.contains('冲突副本') == true &&
+          decision.conflictCopy?.id != 'rev-1',
+      '${decision.conflictCopy}');
+
+  decision = decideEntrySave(
+      incoming: e(rev: 2, updatedAt: 100, title: '本地旧'),
+      remote: e(rev: 5, updatedAt: 200, title: '远端新'),
+      deviceId: 'dev-a',
+      now: now);
+  _check('远端 rev 更高时不覆盖远端', decision.entry == null, '$decision');
+  _check('本地编辑被保留成副本',
+      decision.conflictCopy?.title.contains('本地旧') == true, '$decision');
+
+  // 旧条目（无版本信息）第一次被编辑：不应产生冲突副本
+  decision = decideEntrySave(
+      incoming: e(rev: 0, updatedAt: 0, title: '第一次改老日记'),
+      remote: e(rev: 0, updatedAt: 0, title: '老日记'),
+      deviceId: 'dev-a',
+      now: now);
+  _check('旧条目首次编辑不产生副本',
+      decision.entry?.rev == 1 && !decision.hasConflict, '$decision');
+
+  final down = now.subtract(const Duration(hours: 1));
+  decision = decideEntrySave(
+      incoming: e(rev: 4, updatedAt: now.millisecondsSinceEpoch, title: 'A'),
+      remote: e(rev: 4, updatedAt: down.millisecondsSinceEpoch, title: 'B'),
+      deviceId: 'dev-a',
+      now: now);
+  _check('同 rev 且时间差过大时两边都保留',
+      decision.entry != null && decision.hasConflict, '$decision');
+
+  // 旧队列文件兼容：缺字段按 0 处理
+  final legacyJson = e().toJson()
+    ..remove('rev')
+    ..remove('updatedAt')
+    ..remove('deviceId');
+  final parsed = DiaryEntry.fromJson(legacyJson);
+  _check('旧格式条目缺版本字段可解析',
+      parsed.rev == 0 && parsed.updatedAt == 0 && parsed.deviceId == '');
+  final roundTrip = DiaryEntry.fromJson(e(rev: 9, updatedAt: 123).toJson());
+  _check('版本字段可往返序列化',
+      roundTrip.rev == 9 && roundTrip.updatedAt == 123);
+
+  // 8. 媒体缓存按最旧优先淘汰
   final mediaDir = Directory('${root.path}/media_cache');
   await mediaDir.create(recursive: true);
   final base = DateTime(2026, 1, 1);
@@ -222,9 +301,10 @@ class _FakeCloud implements CloudStorageService {
       (await readEntries(_entries.keys.toList()));
 
   @override
-  Future<void> saveDiaryEntry(DiaryEntry entry) async {
+  Future<DiaryEntry> saveDiaryEntry(DiaryEntry entry) async {
     _entries[entry.id] = entry;
     _etag[entry.id] = _tagFor(entry.id);
+    return entry;
   }
 
   @override

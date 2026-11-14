@@ -24,7 +24,9 @@ abstract class CloudStorageService {
   Future<void> initialize(AppConfig config);
   Future<void> saveConfig(AppConfig config);
   Future<AppConfig?> loadConfig();
-  Future<void> saveDiaryEntry(DiaryEntry entry);
+  /// 保存条目，返回实际落盘的条目（可能带冲突裁决后的版本号；
+  /// 远端版本更新时返回远端条目，并把本次编辑另存为冲突副本）。
+  Future<DiaryEntry> saveDiaryEntry(DiaryEntry entry);
   Future<List<DiaryEntry>> loadAllEntries();
 
   /// 列出 entries/ 的远端属性，用于增量差分（1 次 PROPFIND）

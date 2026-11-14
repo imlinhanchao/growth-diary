@@ -283,12 +283,20 @@ Phase 1 先用方案 1；如果实测显示 OPTIONS 占首屏耗时 30% 以上�
 - **只支持离线新增，不支持离线编辑与删除**。编辑涉及冲突裁决，收益低风险高。
 - 新增条目先写本地，索引临时标记 `pending: true`（旧索引缺该字段视为 false），联网后 PUT 到远端，成功则清标记。若 PUT 失败且远端已存在同 id 文件，生成副本而不是覆盖。
 
-### 4.2 编辑冲突
+### 4.2 编辑冲突（已落地）
 
-现状是三处直接覆盖写，两端同时改同一条会静默丢失。最小改动：
+现状是三处直接覆盖写，两端同时改同一条会静默丢失。已按下面的规则实现（`lib/utils/revision_merger.dart`）：
 
 - `DiaryEntry` 增加可选字段 `updatedAt`（int，毫秒）、`rev`（int，从 1 开始）、`deviceId`（String）。全部给默认值，`fromJson` 缺失时视为 `rev = 0`，保证旧文件可读。
-- 冲突裁决：先比 `rev`，再比 `updatedAt`；`updatedAt` 只做展示与兜底。单纯靠时间戳会被手机时钟误差坑死（差几分钟就静默覆盖）。
+- **保存前先读远端**：`saveDiaryEntry` 先用 `readDir` 判断远端是否已有该 id，有则读取用于裁决。读失败会中止保存而不是当成新建，避免网络抖动把远端内容覆盖掉。
+- 裁决规则：
+  1. 远端不存在 → 写入，`rev + 1`；
+  2. 内容完全相同（忽略版本字段）→ 只递增 `rev`；
+  3. 远端没有版本信息（旧版本写的）→ 直接覆盖并置 `rev = 1`，否则**第一次编辑老日记就会多出一份副本**；
+  4. `rev` 不同 → `rev` 大的一方留在原 id，另一方另存为「冲突副本」；
+  5. `rev` 相同 → `updatedAt` 较新的一方留在原 id；两边时间差超过 5 分钟视为时钟不可信，**两份都保留**。
+- 冲突副本用新 uuid、标题加「（冲突副本）」后缀，因此条目总数会变多，靠现有同步自然会出现在时间轴上。
+- 已知不足：副本只在下次同步时出现在列表里，保存当下没有弹窗提醒；如果希望保存时立刻提示，需要把 `saveDiaryEntry` 的返回值扩展成带冲突信息的结果对象。
 - **兼容雷点**：上传任务队列会把 `DiaryEntry` 整个序列化进 `upload_tasks.json`（[media_upload_service.dart:325-327](lib/services/media_upload_service.dart#L325-L327)、[394-397](lib/services/media_upload_service.dart#L394-L397)）。加字段后，老版本写下的队列文件在新版反序列化时必须走默认值，不能抛异常；反过来新版写下的队列文件被旧版读取时也一样。这一点必须在 Phase 2 动工前测过。
 - 写入点共三个：编辑页（[diary_editor_screen.dart:83](lib/screens/diary_editor_screen.dart#L83)、[91](lib/screens/diary_editor_screen.dart#L91)）、详情页（[entry_detail_screen.dart:209](lib/screens/entry_detail_screen.dart#L209)）、上传完成回调（[media_upload_service.dart:985](lib/services/media_upload_service.dart#L985)）。
 
@@ -430,7 +438,11 @@ Phase 1 先用方案 1；如果实测显示 OPTIONS 占首屏耗时 30% 以上�
 | `lib/services/local_diary_cache.dart` | 新增 | 索引与 body 的原子读写、批量读取、损坏返回 null。刻意不依赖 Flutter，可用纯 Dart 脚本测试 |
 | `lib/services/diary_repository.dart` | 新增 | 本地优先读取、PROPFIND 差分、并发拉取、会话级同步节流、失败语义 |
 | `lib/services/cloud_storage_service.dart` | 改动 | 增加 `RemoteEntryMeta`、`listEntryMeta()`、`readEntry()`、`readEntries()`；删除从未生效的 `loadEntriesPage` |
-| `lib/services/webdav_service.dart` | 改动 | 实现上述接口；`loadAllEntries` 改为并发路径；去掉固定 100ms 延迟；删除串行逐条读取 |
+| `lib/services/webdav_service.dart` | 改动 | 实现上述接口；`loadAllEntries` 改为并发路径；去掉固定 100ms 延迟；媒体下载限流 4 路 + 同路径去重；保存前读远端做冲突裁决 |
+| `lib/utils/revision_merger.dart` | 新增 | 纯函数冲突裁决：rev 优先、时间兜底、时钟差过大两边都留 |
+| `lib/utils/cache_eviction.dart` | 新增 | 按最后修改时间淘汰旧缓存文件（纯 Dart，可测） |
+| `lib/services/file_cache.dart` | 改动 | 500MB 上限 + 5 分钟节流 + 支持注入目录 |
+| `lib/services/local_storage_service.dart` | 改动 | 设备 ID（用于冲突裁决标识写入方） |
 | `lib/screens/home_screen.dart` | 改动 | 接入 `DiaryRepository`：索引→首屏 12 条→后台补全→对账；离线提示；滚动不再发网络请求；编辑/删除同步更新本地缓存 |
 | `tool/dav_test_server.dart` | 新增 | 本地 WebDAV 夹具：PROPFIND/GET/PUT/DELETE/MKCOL，可注入延迟与失败，`/__stats` 统计请求数 |
 | `tool/dav_seed.dart` | 新增 | 生成 500 / 2000 条含缩略图的测试数据 |
@@ -471,7 +483,7 @@ dart tool/sync_smoke.dart
 1. **缩略图仍逐张 GET**：首次浏览一屏仍会发几十次请求。这些走 `FileCache` 磁盘缓存，第二次打开不再请求，但首次浏览的体感仍受网络影响。彻底解决需要把缩略图放进条目同步范围或引入批量下载。
 2. **TV 模式**：`_getTvMediaItems()` 已按「条目修订号 + 过滤条件」记忆化，不再是每次 build 全量展开；但列表变化时仍是一次 O(N) 重建，真正的按可见行懒展开还没做。
 3. **缓存没有容量上限**：媒体缓存只写不淘汰（§3.8）。
-4. **没有版本字段与冲突裁决**：多端同时编辑同一条仍是静默覆盖（§4.2）。
-5. **索引每次启动都会重写**（426KB/2000 条），可以改成无变更时只写一个小的 sync_state。
-6. **时间轴列表仍为每次 build 重建全部 widget 对象**（构造 2000 个 `TimelineItem` 实例），可改缓存或惰性构建。
-7. **`read()` 前的 OPTIONS 未消除**：目前靠并发掩盖，§3.11 的方案 2/3 未实施。
+4. **冲突副本没有即时提示**：保存时会写副本，但要等下次同步才出现在列表里（§4.2）。
+5. **时间轴列表仍为每次 build 重建全部 widget 对象**（构造 2000 个 `TimelineItem` 实例），可改缓存或惰性构建。
+6. **`read()` 前的 OPTIONS 未消除**：目前靠并发掩盖，§3.11 的方案 2/3 未实施。
+7. **媒体缓存的 500MB 上限是写死的**，没有暴露给设置页。

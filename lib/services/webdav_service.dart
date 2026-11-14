@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 import 'package:get_thumbnail_video/video_thumbnail.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/diary_entry.dart';
+import '../utils/revision_merger.dart';
 import '../models/app_config.dart';
 import 'cloud_storage_service.dart';
 import 'file_cache.dart';
@@ -194,20 +195,63 @@ class WebDAVService implements CloudStorageService {
   }
 
   @override
-  Future<void> saveDiaryEntry(DiaryEntry entry) async {
+  Future<DiaryEntry> saveDiaryEntry(DiaryEntry entry) async {
     final client = await _ensureClient();
-    if (client == null || _id == null) return;
+    if (client == null || _id == null) return entry;
 
     try {
-      final jsonString = jsonEncode(entry.toJson());
-      await client.write(
-        '${_getEntriesPath()}/${entry.id}.json',
-        utf8.encode(jsonString),
+      final deviceId = await _localStorage.getOrCreateDeviceId();
+      // 先确认远端是否已有这个 id：存在就读取用于裁决，不存在才按新建处理。
+      // 不靠异常字符串判断 404——webdav_client 的错误信息里不一定带状态码。
+      final exists = await _remoteEntryExists(entry.id);
+      DiaryEntry? remote;
+      if (exists) {
+        remote = await readEntry(entry.id);
+        if (remote == null) {
+          throw Exception('读取远端条目失败，已中止保存以免覆盖');
+        }
+      }
+      final decision = decideEntrySave(
+        incoming: entry,
+        remote: remote,
+        deviceId: deviceId,
+        now: DateTime.now(),
       );
+      if (decision.hasConflict) {
+        debugPrint('检测到并发编辑（${decision.reason}），'
+            '另存副本 ${decision.conflictCopy!.id}');
+      }
+      if (decision.conflictCopy != null) {
+        await _writeEntryFile(decision.conflictCopy!);
+      }
+      if (decision.entry != null) {
+        await _writeEntryFile(decision.entry!);
+        return decision.entry!;
+      }
+      // 远端更新，本次编辑只留副本：返回远端内容，让调用方显示实际状态
+      return remote ?? entry;
     } catch (e) {
       debugPrint('Error saving diary entry: $e');
       rethrow;
     }
+  }
+
+  Future<void> _writeEntryFile(DiaryEntry entry) async {
+    final client = await _ensureClient();
+    if (client == null || _id == null) return;
+    await client.write(
+      '${_getEntriesPath()}/${entry.id}.json',
+      utf8.encode(jsonEncode(entry.toJson())),
+    );
+  }
+
+  /// 远端是否已存在该条目。网络错误会向上抛，不会被当成"不存在"。
+  Future<bool> _remoteEntryExists(String id) async {
+    final client = await _ensureClient();
+    if (client == null) throw StateError('WebDAV 未初始化');
+    final files = await client.readDir(_getEntriesPath());
+    final fileName = '$id.json';
+    return files.any((file) => file.name == fileName);
   }
 
   @override

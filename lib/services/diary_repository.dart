@@ -179,9 +179,10 @@ class DiaryRepository {
   }
 
   /// 保存条目：先写远端，成功后更新本地，保证本地不会出现远端没有的数据。
-  Future<void> saveEntry(DiaryEntry entry) async {
-    await cloud.saveDiaryEntry(entry);
-    await cacheEntry(entry);
+  Future<DiaryEntry> saveEntry(DiaryEntry entry) async {
+    final saved = await cloud.saveDiaryEntry(entry);
+    await cacheEntry(saved);
+    return saved;
   }
 
   /// 远端已经保存成功，只补本地缓存（编辑页/详情页当前的写入路径）。

@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../models/app_config.dart';
 
 class LocalStorageService {
   static const String _configsKey = 'app_configs';
   static const String _currentConfigIdKey = 'current_config_id';
+  static const String _deviceIdKey = 'device_id';
 
   Future<void> saveConfig(AppConfig config) async {
     final prefs = await SharedPreferences.getInstance();
@@ -63,6 +65,16 @@ class LocalStorageService {
     if (currentId == configId && configs.isNotEmpty) {
       await setCurrentConfigId(configs.keys.first);
     }
+  }
+
+  /// 设备唯一标识，用于冲突裁决时区分写入方。每次安装生成一次。
+  Future<String> getOrCreateDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString(_deviceIdKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final created = const Uuid().v4();
+    await prefs.setString(_deviceIdKey, created);
+    return created;
   }
 
   Future<String?> getString(String key) async {

@@ -205,19 +205,20 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
           ageInMonths: ageInMonths,
         );
 
-        // 保存到WebDAV
-        await widget.cloudService.saveDiaryEntry(updatedEntry);
+        // 保存到WebDAV（返回实际落盘版本，可能因并发编辑触发冲突副本）
+        final saved =
+            await widget.cloudService.saveDiaryEntry(updatedEntry);
 
         if (!mounted) return;
 
         // 更新当前状态
         setState(() {
-          _currentEntry = updatedEntry;
+          _currentEntry = saved;
         });
 
         // 通知首页有更新
         widget.onEntryUpdated
-            ?.call(EntryDetailResult.updated(updatedEntry), widget.entry);
+            ?.call(EntryDetailResult.updated(saved), widget.entry);
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('日期修改成功')),
